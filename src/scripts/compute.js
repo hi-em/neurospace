@@ -5,6 +5,8 @@ import { store } from "../stores/storeSingletons"
 RhinoCompute.url = "https://compute8.iaac.net/"
 RhinoCompute.apiKey = "macad2026"
 
+const COMPUTE_TIMEOUT_MS = 5000
+
 let rhino, doc, res
 
 // Cache the GH definition binary after first fetch — avoids re-downloading on every compute
@@ -59,7 +61,15 @@ async function compute(definition, definitionInputs) {
     trees.push(param)
   }
 
-  const res = await RhinoCompute.Grasshopper.evaluateDefinition(definition, trees)
+  // compute8.iaac.net is retired and hangs rather than refusing, so the browser sat
+  // on it for the full two-minute TCP timeout before anyone saw why. Race it: the
+  // server is not coming back, and five seconds is already generous for a request
+  // that used to answer in under two.
+  const res = await Promise.race([
+    RhinoCompute.Grasshopper.evaluateDefinition(definition, trees),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Rhino Compute did not answer')), COMPUTE_TIMEOUT_MS)),
+  ])
 
   const duration = (performance.now() - startTime) / 1000
   console.log(`[Compute] GH evaluated in ${duration.toFixed(3)}s`)

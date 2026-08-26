@@ -847,7 +847,11 @@ async function compute() {
     })
   } catch (error) {
     console.error('Compute failed:', error)
-    errorMessage.value = 'Compute error: ' + (error.message || String(error))
+    // The shared Rhino Compute server this was built against is retired, so every
+    // failure down this path now means the same thing. The raw fetch error told a
+    // visitor nothing; this says what actually happened and what still works.
+    errorMessage.value = 'The geometry is gone because the Rhino Compute server behind it '
+      + 'was retired at the end of the course year; the NeuroScore still runs in your browser.'
   } finally {
     isComputing = false
     // If new data arrived while we were computing, run again with the latest values

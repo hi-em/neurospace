@@ -14,7 +14,7 @@
         An interactive tool that lets you design a parametric space through the lens of
         neuroarchitecture. Manipulate spatial variables — curvature, surface geometry, scale,
         daylight access, and biophilic elements — and watch how your design affects a live
-        <strong>NeuroScore</strong>, a measure of neurophysiological stress potential grounded in
+        <strong>NeuroScore</strong>, an estimate of neurophysiological stress potential grounded in
         peer-reviewed research.
       </p>
 

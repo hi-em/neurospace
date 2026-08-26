@@ -19,7 +19,7 @@ It is BIM reframed: Building Information Modeling to Behavior Information Modeli
 information that matters is not only what a building is made of, it is what the building is
 doing to the person inside it.
 
-Built solo, for MaCAD (Master in Advanced Computation for Architecture & Design) at IAAC, by
+Built solo, for MaCAD (Master in Advanced Computational Design for Architecture II) at IAAC, by
 Emilie El Chidiac.
 
 ## How it works
