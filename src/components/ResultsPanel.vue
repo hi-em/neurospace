@@ -220,7 +220,7 @@
       <!-- Neurological Impact Map -->
       <div class="ns-brain-section">
         <p class="ns-section-eyebrow">Neurological Impact Map</p>
-        <p class="ns-brain-subtitle">Brain regions most affected by your current spatial design</p>
+        <p class="ns-brain-subtitle">Illustrative, not measured: where the research places each effect. The map shades by your score, not by any reading of a brain.</p>
         <div class="ns-brain-layout">
           <svg class="ns-brain-svg" viewBox="0 0 220 185">
             <path d="M 95 155 C 65 153, 40 138, 30 118 C 20 98, 22 72, 32 54 C 45 34, 70 24, 100 24 C 130 24, 155 34, 168 54 C 180 72, 182 98, 172 118 C 162 138, 140 153, 115 155 Z" fill="#f7f7f7" stroke="#ddd" stroke-width="1.5"/>
@@ -464,8 +464,8 @@ const brainRegions = [
   { region: 'Prefrontal Cortex', dimension: 'Ceiling Height', effect: 'Abstract thinking & sense of confinement' },
   { region: 'Parietal Lobe', dimension: 'Wall Quality', effect: 'Visual stress & spatial processing' },
   { region: 'Visual Cortex', dimension: 'Natural Light', effect: 'Circadian rhythm & eye strain reduction' },
-  { region: 'Temporal Lobe', dimension: 'Biophilic Form', effect: 'Neuroinflammation & visual coherence' },
-  { region: 'Limbic System', dimension: 'Potted Plants', effect: 'Attention restoration & stress response' },
+  { region: 'Temporal Lobe', dimension: 'Biophilic Form', effect: 'Biomorphic form & visual coherence' },
+  { region: 'Limbic System', dimension: 'Potted Plants', effect: 'Vegetation in view' },
 ]
 
 // ── PDF report ref ───────────────────────────────────────────────

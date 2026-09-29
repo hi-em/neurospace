@@ -120,11 +120,11 @@ export const dimensionMeta = {
     contributorKeys:   ['Wall Curvature', 'Wall Count'],
     contributorLabels: ['Wall Curvature', 'Wall Count'],
     maxPts: 25,
-    tagline: 'Visual cortex load & threat response',
+    tagline: 'Visual stress potential',
     consequence: 'Angular, hard-cornered surfaces are estimated to raise visual stress potential.',
     rules: [
       { range: 'Low curvature', outcome: 'Angular forms → higher estimated visual stress',risk: 'high' },
-      { range: 'Mid curvature', outcome: 'Reduced threat-response activation',       risk: 'moderate' },
+      { range: 'Mid curvature', outcome: 'Lower estimated visual stress',            risk: 'moderate' },
       { range: 'High curvature', outcome: 'Smooth surfaces → lowest estimated visual stress', risk: 'low' },
     ],
     hypothesis(params) {
@@ -158,16 +158,16 @@ export const dimensionMeta = {
     contributorKeys:   ['Biophilic Organic Form'],
     contributorLabels: ['Biomorphic Form'],
     maxPts: 18,
-    tagline: 'Neuroinflammation & visual coherence',
+    tagline: 'Biomorphic form & visual coherence',
     consequence: 'Biophilic design was associated with lower EEG delta power in a small pilot; the peak near 40% is a model assumption.',
     rules: [
-      { range: '0–20%',  outcome: 'Rectilinear — neuroinflammation benefit absent', risk: 'moderate' },
+      { range: '0–20%',  outcome: 'Rectilinear — no biomorphic benefit estimated', risk: 'moderate' },
       { range: '30–50%', outcome: 'Model optimum — highest estimated benefit',     risk: 'low' },
       { range: '> 60%',  outcome: 'Excessive complexity — visual coherence loss',   risk: 'moderate' },
     ],
     hypothesis(params) {
       const b = params['Biophilic Organic Form'] ?? 0
-      if (b < 20) return `At ${b}%, the geometry is largely rectilinear — the neuroinflammation benefit of biomorphic form is not activated.`
+      if (b < 20) return `At ${b}%, the geometry is largely rectilinear, so this model estimates no biomorphic benefit.`
       if (b >= 30 && b <= 55) return `At ${b}%, biomorphic form is in the range this model scores highest; a small pilot associated biophilic design with lower EEG delta power.`
       return `At ${b}%, organic complexity is high — visual coherence may be reduced, increasing cognitive load.`
     },
