@@ -18,10 +18,10 @@ export const PARAM_KEYS = Object.keys(PARAMS)
 // Presentation order is the palette's validated order (see tokens.css).
 export const DIMS = [
   { key: 'Ceiling Height', label: 'Ceiling',  color: 'var(--ns-d-ceiling)', token: '--ns-d-ceiling', icon: 'ceiling', region: 'Prefrontal cortex' },
-  { key: 'Wall Quality',   label: 'Walls',    color: 'var(--ns-d-walls)',   token: '--ns-d-walls',   icon: 'walls',   region: 'Parietal lobe' },
   { key: 'Potted Plants',  label: 'Plants',   color: 'var(--ns-d-plants)',  token: '--ns-d-plants',  icon: 'plants',  region: 'Limbic system' },
-  { key: 'Natural Light',  label: 'Daylight', color: 'var(--ns-d-light)',   token: '--ns-d-light',   icon: 'window',  region: 'Visual cortex' },
   { key: 'Biophilic Form', label: 'Form',     color: 'var(--ns-d-form)',    token: '--ns-d-form',    icon: 'form',    region: 'Temporal lobe' },
+  { key: 'Natural Light',  label: 'Daylight', color: 'var(--ns-d-light)',   token: '--ns-d-light',   icon: 'window',  region: 'Visual cortex' },
+  { key: 'Wall Quality',   label: 'Walls',    color: 'var(--ns-d-walls)',   token: '--ns-d-walls',   icon: 'walls',   region: 'Parietal lobe' },
 ]
 export const dimOf = key => DIMS.find(d => d.key === key)
 
@@ -64,4 +64,14 @@ export function decodeState(hash) {
     const b = hash.replace(/^#?s=/, '').replace(/-/g, '+').replace(/_/g, '/')
     return JSON.parse(decodeURIComponent(escape(atob(b))))
   } catch { return null }
+}
+
+// A question you write has no start of its own; its 3D icon shows the change
+// it asks about, each of its parameters pushed three quarters of the way.
+export function iconState(q) {
+  if (q.start && Object.keys(q.start).length) return q.start
+  return Object.fromEntries(q.keys.map(k => {
+    const p = PARAMS[k], v = p.min + 0.75 * (p.max - p.min)
+    return [k, Math.round(v / p.step) * p.step]
+  }))
 }

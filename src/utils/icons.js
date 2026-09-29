@@ -28,6 +28,11 @@ export const ICONS = {
   share:     '<circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="m8.2 10.8 7.6-3.6M8.2 13.2l7.6 3.6"/>',
   export:    '<path d="M12 3v12M8 11l4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>',
   plus:      '<path d="M12 5v14M5 12h14"/>',
+  collapse:  '<path d="M14.5 6 8.5 12l6 6"/><path d="M19 5v14" opacity=".4"/>',
+  expand:    '<path d="M9.5 6l6 6-6 6"/><path d="M5 5v14" opacity=".4"/>',
+  cut:       '<path d="M6 20v-9a6 6 0 0 1 12 0v9"/><path d="M2.5 13.5h19" stroke-dasharray="2.2 2.2"/>',
+  flow:      '<path d="M4 6c7 0 7 6 16 6M4 18c7 0 7-6 16-6M4 12h7"/>',
+  book:      '<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5z"/><path d="M20 5.5A1.5 1.5 0 0 0 18.5 4H13v16h5.5a1.5 1.5 0 0 0 1.5-1.5z"/>',
   question:  '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6"/><circle cx="12" cy="17" r=".8" fill="currentColor" stroke="none"/>',
 }
 

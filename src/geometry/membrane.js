@@ -17,7 +17,8 @@
  *                           cubic B-spline; a ridge cable runs up from each
  *                           corner. Low curvature: taut ridges, no pressure, a
  *                           faceted saddle tent. High curvature: even prestress
- *                           and pressure, a soft bubble
+ *                           and pressure, a soft bubble, inflated only until its
+ *                           crown meets the ring: the ring is always the top
  *   Opening Count + Size    Lamé (superellipse) arches where the edge lifts off
  *                           the ground, placed on the sun's azimuth for one hour
  *                           each (equinox, Barcelona); arch area, solved with the
@@ -183,7 +184,7 @@ export function createRoom() {
     edge: new Float32Array((NS + 1) * 3),              // the edge cable, for a tube or a line
     ring: { x: 0, y: 5, z: 0, r: 0.6, tiltX: 0, tiltZ: 0 },
     theta: new Float64Array(NS), R: new Float64Array(NS), R1: new Float64Array(NS), qr: new Float64Array(NS),
-    X: new Float64Array(N), Y: new Float64Array(N), Z: new Float64Array(N),
+    X: new Float64Array(N), Y: new Float64Array(N), Z: new Float64Array(N), Y0: new Float64Array(N), Yp: new Float64Array(N), lift: 1,
     solved: false,
     S0: newSamples(), S1: newSamples(),
     stats: {},
@@ -286,10 +287,22 @@ export function writeRoom(room, p, opts = {}) {
     X[idx(NT, j)] = r0 * Math.cos(theta[j]) + ring.x; Z[idx(NT, j)] = r0 * Math.sin(theta[j]) + ring.z; Y[idx(NT, j)] = ringY(theta[j])
   }
 
-  // Over-relaxed Gauss–Seidel on Σ q_ij (x_j − x_i) + p·n̂_i = 0
+  // Over-relaxed Gauss–Seidel on Σ q_ij (x_j − x_i) + p·n̂_i = 0.
+  // The force densities are fixed, so height is linear in its loads: it is
+  // solved as two fields, Y0 (the boundaries, no pressure: a soap film) and Yp
+  // (the pressure's lift, zero boundaries). The film is then Y = Y0 + s·Yp with
+  // the largest s ≤ 1 that keeps every node at or below the ring: the bubble
+  // inflates until its crown meets the ring, never past it into a crater.
+  const { Y0, Yp } = room
+  if (!room.solved) for (let c = 0; c < Y.length; c++) { Y0[c] = Y[c]; Yp[c] = 0 }
+  for (let j = 0; j < NS; j++) { Y0[idx(0, j)] = Y[idx(0, j)]; Y0[idx(NT, j)] = Y[idx(NT, j)]; Yp[idx(0, j)] = Yp[idx(NT, j)] = 0 }
   const iters = room.solved ? (opts.iters ?? 10) : 260
   const omega = 1.4
+  // one pressure for the whole film: the walls bow out by the same share of it
+  // that lifts the crown to the ring, so the film never mushrooms past its hem
+  if (!room.solved) room.lift = 0.5
   for (let it = 0; it < iters; it++) {
+    const sp = room.lift
     for (let i = 1; i < NT; i++) for (let j = 0; j < NS; j++) {
       const a = idx(i - 1, j), b = idx(i + 1, j), l = idx(i, (j - 1 + NS) % NS), r = idx(i, (j + 1) % NS), c = idx(i, j)
       const w = qr[j], den = 2 * w + 2 * qh
@@ -300,10 +313,20 @@ export function writeRoom(room, p, opts = {}) {
         const nl = Math.hypot(nx, ny, nz) || 1
         nx *= pressure / nl; ny *= pressure / nl; nz *= pressure / nl   // fixed-magnitude follower load: stable
       }
-      X[c] += omega * ((w * (X[a] + X[b]) + qh * (X[l] + X[r]) + nx) / den - X[c])
-      Y[c] += omega * ((w * (Y[a] + Y[b]) + qh * (Y[l] + Y[r]) + ny) / den - Y[c])
-      Z[c] += omega * ((w * (Z[a] + Z[b]) + qh * (Z[l] + Z[r]) + nz) / den - Z[c])
+      X[c] += omega * ((w * (X[a] + X[b]) + qh * (X[l] + X[r]) + sp * nx) / den - X[c])
+      Z[c] += omega * ((w * (Z[a] + Z[b]) + qh * (Z[l] + Z[r]) + sp * nz) / den - Z[c])
+      Y0[c] += omega * ((w * (Y0[a] + Y0[b]) + qh * (Y0[l] + Y0[r])) / den - Y0[c])
+      Yp[c] += omega * ((w * (Yp[a] + Yp[b]) + qh * (Yp[l] + Yp[r]) + ny) / den - Yp[c])
     }
+    if (it === iters - 1 || (!room.solved && it % 20 === 19)) liftToRing()
+  }
+  function liftToRing() {
+    // max_c(Y0 + s·Yp) is convex in s: bisect for the largest s that keeps it ≤ H
+    const f = s => { let m = -1e9; for (let i = 1; i < NT; i++) for (let j = 0; j < NS; j++) { const c = idx(i, j); m = Math.max(m, Y0[c] + s * Yp[c]) } return m }
+    let s = 1
+    if (f(1) > H) { let lo = 0, hi = 1; for (let k = 0; k < 14; k++) { const mid = (lo + hi) / 2; if (f(mid) > H) hi = mid; else lo = mid } s = lo }
+    room.lift = s
+    for (let i = 1; i < NT; i++) for (let j = 0; j < NS; j++) { const c = idx(i, j); Y[c] = Y0[c] + s * Yp[c] }
   }
   room.solved = true
 
@@ -370,6 +393,80 @@ export function writeRoom(room, p, opts = {}) {
   room.net.computeBoundingSphere()
   room.bounds.radius = maxR * U
   room.bounds.height = maxY * U
-  room.stats = { wwr: glazed / (P * 2.4), targetWwr: p.size / 100, kappa, pressure, ridge: K, hours, archHeight: hA, arches: k }
+  // arch centres as columns, for the plan's labels
+  const archCols = cs.map(c => { const cc = ((c % P) + P) % P; let j = 0; while (j < NS - 1 && sCol[j + 1] <= cc) j++; return j })
+  room.stats = { wwr: glazed / (P * 2.4), targetWwr: p.size / 100, kappa, pressure, lift: room.lift, ridge: K, hours, archHeight: hA, arches: k,
+    archWidth: 2 * aHalf, glazed, perimeter: P, archCols, nExp }
   return room
+}
+
+/**
+ * The numbers an architect would ask for, measured on the solved film (metres).
+ * Volume by the divergence theorem over the film's triangles, plus the column
+ * under the oculus; headroom as the share of the floor with 2.1 m above it.
+ */
+export function roomSpecs(room) {
+  const U = UNITS_PER_M, P = room.membrane.attributes.position.array, I = room.membrane.index.array
+  let area = 0, vol = 0
+  for (let k = 0; k < I.length; k += 3) {
+    const a = 3 * I[k], b = 3 * I[k + 1], c = 3 * I[k + 2]
+    const ux = P[b] - P[a], uy = P[b + 1] - P[a + 1], uz = P[b + 2] - P[a + 2]
+    const vx = P[c] - P[a], vy = P[c + 1] - P[a + 1], vz = P[c + 2] - P[a + 2]
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx
+    area += Math.hypot(nx, ny, nz) / 2
+    vol += (ny / 2) * (P[a + 1] + P[b + 1] + P[c + 1]) / 3            // plan area × mean height, signed
+  }
+  area /= U * U
+  const r = room.ring
+  vol = Math.abs(vol) / (U * U * U) + Math.PI * r.r * r.r * r.y
+  const F = room.floor.attributes.position.array, W = NS + 1, o = 10 * W
+  let floor = 0, span = 0
+  for (let j = 0; j < NS; j++) {
+    const a = 3 * (o + j), b = 3 * (o + j + 1)
+    floor += (F[a] * F[b + 2] - F[b] * F[a + 2]) / 2
+    span = Math.max(span, Math.hypot(F[a], F[a + 2]))
+  }
+  floor = Math.abs(floor) / (U * U)
+  // headroom: highest film over each 0.25 m plan cell
+  const cell = new Map(), B = 0.25
+  for (let v = 0; v < P.length / 3; v++) {
+    const k = Math.round(P[3 * v] / U / B) * 4096 + Math.round(P[3 * v + 2] / U / B)
+    const y = P[3 * v + 1] / U
+    if (!(cell.get(k) >= y)) cell.set(k, y)
+  }
+  let ok = 0
+  for (const y of cell.values()) if (y >= 2.1) ok++
+  const st = room.stats
+  return {
+    crown: r.y, oculus: 2 * r.r, floor, envelope: area, volume: vol, meanHeight: vol / floor,
+    span: 2 * span / U, perimeter: st.perimeter, headroom: ok / cell.size,
+    arches: st.arches, archHeight: st.archHeight, archWidth: st.archWidth, glazed: st.glazed, wwr: st.wwr,
+    nodes: NS * (NT + 1), ridge: st.ridge, kappa: st.kappa, lift: st.lift, pressure: st.pressure,
+  }
+}
+
+/** Plan radius of the ground edge (metres) at an angle in the xz plane. */
+export function planRadiusAt(room, angle) {
+  const u = wrap(angle - THETA0) / DTH, j = Math.floor(u) % NS, f = u - Math.floor(u)
+  return room.R[j] + (room.R[(j + 1) % NS] - room.R[j]) * f
+}
+
+/**
+ * The plan section: where the film crosses a horizontal cut, column by column,
+ * in scene units. A column whose hem is above the cut is an opening: null.
+ */
+export function sectionAt(room, cutM, out = []) {
+  const U = UNITS_PER_M, P = room.membrane.attributes.position.array, W = NS + 1, cut = cutM * U
+  out.length = 0
+  for (let jj = 0; jj <= NS; jj++) {
+    let pt = null
+    if (P[3 * jj + 1] <= cut) {
+      for (let i = 0; i < NT; i++) {
+        const a = 3 * (i * W + jj), b = 3 * ((i + 1) * W + jj), ya = P[a + 1], yb = P[b + 1]
+        if (ya <= cut && yb > cut) { const f = (cut - ya) / (yb - ya); pt = [P[a] + (P[b] - P[a]) * f, P[a + 2] + (P[b + 2] - P[a + 2]) * f]; break }
+      }
+    }
+    out.push(pt)
+  }
+  return out
 }

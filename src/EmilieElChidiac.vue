@@ -3,14 +3,13 @@ import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick } from 'v
 
 import GeometryView from './components/GeometryView.vue'
 import LabCard      from './components/LabCard.vue'
-import LabSlider    from './components/LabSlider.vue'
 import LabDrawer    from './components/LabDrawer.vue'
 import LabReport    from './components/LabReport.vue'
 import ScoreFlow    from './components/ScoreFlow.vue'
 import NsIcon       from './components/NsIcon.vue'
 
 import { calculateNeuroScore, getParameterContributions, dimensionMeta, paramInfo } from './utils/neuroScore.js'
-import { CONTROL, QUESTIONS, PARAMS, PARAM_KEYS, DIMS, describeChange, encodeState, decodeState } from './utils/lab.js'
+import { CONTROL, QUESTIONS, PARAMS, PARAM_KEYS, DIMS, describeChange, encodeState, decodeState, iconState } from './utils/lab.js'
 import { renderThumb } from './geometry/thumbs.js'
 import './styles/base.css'
 
@@ -21,15 +20,13 @@ const controlScore = computed(() => calculateNeuroScore(control))
 const variantScore = computed(() => calculateNeuroScore(variant))
 
 const card = ref('pick')                  // pick → experiment, or custom
-const question = ref(null)
-const free = ref(false)
+const question = ref(null)                // null in an experiment: free play
 const custom = ref(loadCustom())
 const questions = computed(() => [...QUESTIONS, ...custom.value])
 
 function pick(q) {
   Object.assign(variant, control, q?.start ?? {})
   question.value = q
-  free.value = !q
   card.value = 'exp'
 }
 function saveCustom({ text, keys }) {
@@ -37,6 +34,7 @@ function saveCustom({ text, keys }) {
   custom.value = [...custom.value, q]
   try { localStorage.setItem('ns-questions', JSON.stringify(custom.value)) } catch {}
   pick(q)
+  makeThumbs()
 }
 function loadCustom() { try { return JSON.parse(localStorage.getItem('ns-questions') || '[]') } catch { return [] } }
 const setParam = (k, v) => { variant[k] = v }
@@ -56,12 +54,34 @@ const onKey = e => {
 const mode = ref('isometric')
 const solveMs = ref(null)
 const materialConfig = reactive({ color: '#F4F0E8', opacity: 1, roughness: 0.62, metalness: 0, pattern: 'solid' })
+const VIEWS = [['isometric', 'outside', 'Outside'], ['walk', 'inside', 'Inside'], ['plan', 'plan', 'Plan']]
 const SWATCHES = [
   { hex: '#F4F0E8', label: 'Fabric' }, { hex: '#C50000', label: 'NeuroSpace red' }, { hex: '#1a1a1a', label: 'Black' },
   { hex: '#DEB887', label: 'Wood' }, { hex: '#B8B0A8', label: 'Concrete' },
 ]
 const geoMain = ref(null), geoVariant = ref(null)
-const narrow = ref(false)
+const narrow = ref(!!window.matchMedia?.('(max-width: 900px)').matches)   // known before the views mount
+const vw = ref(window.innerWidth)
+const onResize = () => { vw.value = window.innerWidth }
+
+// The card floats over the room; collapsed to its mini bar, the room takes the
+// whole stage. The views shift their lens by the width the card covers.
+const RAIL = 16 + 360 + 16
+const collapsed = ref(readPref('ns-card') === 'mini')
+const setCollapsed = v => { collapsed.value = v; writePref('ns-card', v ? 'mini' : 'open') }
+const inset = computed(() => (narrow.value || collapsed.value) ? 0 : RAIL)
+// On a narrower stage the band drops its words and keeps its icons; narrower
+// still, it leaves the room's side and runs full width under the card.
+const compact = computed(() => vw.value - inset.value < 1040)
+const tight = computed(() => !narrow.value && inset.value > 0 && vw.value - inset.value < 720)
+const swatchOpen = ref(false)
+function readPref(k) { try { return localStorage.getItem(k) } catch { return null } }
+function writePref(k, v) { try { localStorage.setItem(k, v) } catch {} }
+
+// Plan cut height, metres: from knee height to the crown. At 1 m the arches
+// cut through the section, so the openings read as gaps, as in a drawn plan.
+const cut = ref(1)
+const cutMax = computed(() => Math.max(0.6, +variant['Height']))
 
 // Time of day (equinox, Barcelona): the arches sit on the sun's path.
 const hour = ref(15)
@@ -86,6 +106,7 @@ const hourLabel = computed(() => `${Math.floor(hour.value)}:${String(Math.round(
 
 // ── Log ──────────────────────────────────────────────────────────────────────
 const log = ref([])
+const deltaNow = computed(() => variantScore.value - controlScore.value)
 function logResult() {
   const view = compare.value === 'split' ? geoVariant.value : (shownData.value === variant ? geoMain.value : null)
   const cc = getParameterContributions(control), cv = getParameterContributions(variant)
@@ -124,18 +145,19 @@ function restore() {
   if (st.m) mode.value = st.m
   if (st.h) hour.value = st.h
   question.value = questions.value.find(q => q.id === st.q) ?? null
-  free.value = !question.value
   card.value = 'exp'
 }
 
 // ── 3D icons: rendered by the solver, after first paint ──────────────────────
 const thumbs = reactive({})
+let thumbing = false
 function makeThumbs() {
-  const todo = questions.value.filter(q => !thumbs[q.id] && Object.keys(q.start).length)
+  if (thumbing) return
+  thumbing = true
   const next = () => {
-    const q = todo.shift()
-    if (!q) return
-    thumbs[q.id] = renderThumb({ ...CONTROL, ...q.start })
+    const q = questions.value.find(q => !thumbs[q.id])
+    if (!q) { thumbing = false; return }
+    thumbs[q.id] = renderThumb({ ...CONTROL, ...iconState(q) })
     ;(window.requestIdleCallback || setTimeout)(next)
   }
   next()
@@ -149,6 +171,7 @@ onMounted(async () => {
   mq.addEventListener('change', e => { narrow.value = e.matches })
   document.addEventListener('keydown', onKey)
   document.addEventListener('keyup', onKey)
+  window.addEventListener('resize', onResize)
   restore()
   await nextTick()
   setTimeout(makeThumbs, 400)
@@ -157,6 +180,7 @@ onBeforeUnmount(() => {
   cancelAnimationFrame(raf)
   document.removeEventListener('keydown', onKey)
   document.removeEventListener('keyup', onKey)
+  window.removeEventListener('resize', onResize)
 })
 
 const drawer = ref(null)
@@ -171,94 +195,107 @@ const research = computed(() => DIMS.map(d => ({
 </script>
 
 <template>
-  <div class="lab" :class="{ narrow, split: compare === 'split' && !narrow, free: free && card === 'exp' }">
+  <div class="lab" :class="{ narrow, split: compare === 'split' && !narrow, collapsed, compact, tight }" :style="{ '--inset': inset + 'px' }">
 
-    <!-- Stage: the room, full-bleed -->
+    <!-- Stage: the room, full-bleed under everything -->
     <main class="stage" aria-label="Room">
       <template v-if="compare === 'split' && !narrow">
         <figure class="view">
-          <GeometryView :data="control" :score="controlScore" :mode="mode" :sun-hour="hour" :material-config="materialConfig" :interactive="false" label="Control" />
-          <figcaption class="tag">Control · {{ controlScore }}</figcaption>
+          <GeometryView :data="control" :score="controlScore" :mode="mode" :sun-hour="hour" :material-config="materialConfig" :interactive="false" label="Control"
+            :inset-left="inset" :cut-height="cut" />
+          <figcaption class="tag" :style="{ left: `calc(50% + ${inset / 2}px)` }">Control · {{ controlScore }}</figcaption>
         </figure>
         <figure class="view">
           <GeometryView ref="geoVariant" :data="variant" :score="variantScore" :mode="mode" :sun-hour="hour" :material-config="materialConfig" label="Variant"
-            @plant-count-changed="variant['Potted Plants'] = $event" @solved="solveMs = $event" />
+            :cut-height="cut" @plant-count-changed="variant['Potted Plants'] = $event" @solved="solveMs = $event" />
           <figcaption class="tag dark">Variant · {{ variantScore }}</figcaption>
         </figure>
+        <!-- the difference, on the seam between the two rooms -->
+        <div class="delta" :class="deltaNow > 0 ? 'up' : deltaNow < 0 ? 'dn' : ''" aria-live="polite">
+          <b>{{ deltaNow > 0 ? '+' : '' }}{{ deltaNow }}</b><span>variant<br />vs control</span>
+        </div>
       </template>
       <figure v-else class="view">
         <GeometryView ref="geoMain" :data="shownData" :score="shownScore" :mode="mode" :sun-hour="hour" :material-config="materialConfig"
-          :label="shownData === control ? 'Control' : 'Variant'"
+          :label="shownData === control ? 'Control' : 'Variant'" :inset-left="inset" :cut-height="cut"
           @plant-count-changed="variant['Potted Plants'] = $event" @solved="solveMs = $event" />
-        <figcaption v-if="card === 'exp'" class="tag" :class="{ dark: shownData === variant }">
-          {{ shownData === control ? 'Control' : 'Variant' }} · {{ shownScore }}<span v-if="flip"> · flipped</span>
+        <figcaption v-if="card === 'exp'" class="tag" :class="{ dark: shownData === variant }" :style="{ left: `calc(50% + ${inset / 2}px)` }">
+          {{ shownData === control ? 'Control' : 'Variant' }} · {{ shownScore }}<span v-if="flip"> · held F</span>
         </figcaption>
       </figure>
-      <p class="caption">membrane form-found live · force density<span v-if="solveMs"> · {{ solveMs.toFixed(1) }} ms</span></p>
     </main>
 
-    <!-- Header -->
-    <header class="head">
-      <div>
-        <h1 class="brand">Neuro<span>Space</span></h1>
-        <p class="claim">Change one thing in a room; the lab estimates what it does to the person inside.</p>
-      </div>
-      <nav aria-label="Lab">
-        <button @click="drawer = 'method'"><NsIcon name="question" :size="14" />Method</button>
-        <button @click="drawer = 'research'">Research</button>
-        <button class="red" @click="drawer = 'report'"><NsIcon name="log" :size="14" />Report<span v-if="log.length"> · {{ log.length }}</span></button>
-        <button @click="share" title="Copy a link to this exact experiment"><NsIcon name="share" :size="14" />Share</button>
-        <button @click="exportObj" title="Download the membrane as .obj"><NsIcon name="export" :size="14" />.obj</button>
-      </nav>
-    </header>
+    <!-- Left rail: who and what, then the experiment -->
+    <aside class="rail">
+      <header class="brand">
+        <h1>Neuro<span>Space</span></h1>
+        <p>Change one thing in a room; the lab estimates what it does to the person inside.</p>
+      </header>
+      <LabCard class="card"
+        :state="card" :questions="questions" :question="question" :thumbs="thumbs"
+        :control="control" :variant="variant" :control-score="controlScore" :variant-score="variantScore"
+        :log="log" :collapsed="collapsed && !narrow" :collapsible="!narrow"
+        @pick="pick" @custom="card = 'custom'" @save="saveCustom" @back="card = 'pick'"
+        @set="setParam" @log="logResult" @promote="promote" @collapse="setCollapsed" @report="drawer = 'report'">
+        <template #foot>
+          By <a href="https://www.linkedin.com/in/emilieelchidiac/" target="_blank" rel="noopener noreferrer">Emilie El Chidiac</a>
+          · research <a href="https://cleovalentine.io/" target="_blank" rel="noopener noreferrer">Dr. Cleo Valentine</a>
+        </template>
+      </LabCard>
+    </aside>
 
-    <!-- The card -->
-    <LabCard class="card"
-      :state="card" :questions="questions" :question="question" :thumbs="thumbs"
-      :control="control" :variant="variant" :control-score="controlScore" :variant-score="variantScore"
-      :free="free" :log="log"
-      @pick="pick" @custom="card = 'custom'" @save="saveCustom" @back="card = 'pick'"
-      @set="setParam" @free="free = $event" @log="logResult" @promote="promote" />
-
-    <!-- Free play: every slider along the bottom, the control as a ghost tick -->
-    <section v-if="free && card === 'exp'" class="strip" aria-label="All parameters">
-      <LabSlider v-for="k in PARAM_KEYS" :key="k" :k="k" :value="variant[k]" :control="control[k]" @set="setParam" />
-    </section>
-
-    <!-- Log cards -->
-    <ol v-if="log.length && !free && !narrow" class="logs" aria-label="Logged experiments">
-      <li v-for="(e, i) in log.slice(-3)" :key="i">
-        <img :src="e.dataUrl" alt="" />
-        <span class="k">EXP {{ String(log.length - Math.min(3, log.length) + i + 1).padStart(2, '0') }} · {{ e.change }}</span>
-        <span class="s">{{ e.from }} → {{ e.score }} <em :class="e.delta > 0 ? 'up' : e.delta < 0 ? 'dn' : ''">{{ e.delta > 0 ? '+' : '' }}{{ e.delta }}</em></span>
-      </li>
-    </ol>
-
-    <!-- The band -->
-    <div class="band" role="toolbar" aria-label="View">
-      <div class="sun">
-        <label for="hour"><NsIcon name="sun" :size="16" color="var(--ns-sun)" /><span>{{ hourLabel }}</span></label>
-        <input id="hour" type="range" min="6.5" max="17.5" step="0.05" v-model.number="hour" aria-label="Time of day, equinox, Barcelona" />
-        <button class="pill" @click="playDay" :disabled="reduceMotion" :aria-pressed="playing"><NsIcon :name="playing ? 'pause' : 'play'" :size="12" />day</button>
-      </div>
+    <!-- Top right: reading and taking the work away -->
+    <nav class="bar docbar" aria-label="Lab">
+      <button @click="drawer = 'method'" title="How the room and the score are made"><NsIcon name="flow" :size="16" /><span class="w">Method</span></button>
+      <button @click="drawer = 'research'" title="The evidence behind each dimension"><NsIcon name="book" :size="16" /><span class="w">Research</span></button>
+      <button class="red" @click="drawer = 'report'" title="Report and PDF"><NsIcon name="log" :size="16" /><span class="w">Report</span><span v-if="log.length" class="count">{{ log.length }}</span></button>
       <span class="sep"></span>
-      <div class="seg" role="group" aria-label="View mode">
-        <button v-for="v in [['isometric', 'outside', 'Outside'], ['walk', 'inside', 'Inside'], ['plan', 'plan', 'Plan']]" :key="v[0]"
-          :class="{ on: mode === v[0] }" :aria-pressed="mode === v[0]" @click="mode = v[0]"><NsIcon :name="v[1]" :size="14" />{{ v[2] }}</button>
-      </div>
-      <span class="sep"></span>
-      <div class="seg" role="group" aria-label="Compare" title="Hold F to flip between the rooms">
-        <button :class="{ on: compare === 'variant' }" :aria-pressed="compare === 'variant'" @click="compare = 'variant'"><NsIcon name="single" :size="14" />Variant</button>
-        <button :class="{ on: compare === 'control' }" :aria-pressed="compare === 'control'" @click="compare = 'control'">Control</button>
-        <button v-if="!narrow" :class="{ on: compare === 'split' }" :aria-pressed="compare === 'split'" @click="compare = 'split'"><NsIcon name="split" :size="14" />Split</button>
-      </div>
-      <span class="hint" aria-hidden="true">hold F</span>
-      <span class="sep"></span>
-      <button class="icon-btn" :class="{ on: materialConfig.pattern === 'grid' }" :aria-pressed="materialConfig.pattern === 'grid'"
-        @click="materialConfig.pattern = materialConfig.pattern === 'grid' ? 'solid' : 'grid'" title="Show the cable net the solver works on"><NsIcon name="net" :size="18" /><span class="sr">Net</span></button>
-      <div class="swatches" role="group" aria-label="Membrane colour">
-        <button v-for="c in SWATCHES" :key="c.hex" class="sw" :class="{ on: materialConfig.color === c.hex }" :style="{ background: c.hex }"
-          :aria-label="c.label" :aria-pressed="materialConfig.color === c.hex" @click="materialConfig.color = c.hex"></button>
+      <button @click="share" title="Copy a link to this exact experiment"><NsIcon name="share" :size="16" /><span class="w">Share</span></button>
+      <button @click="exportObj" title="Download the membrane as .obj, in metres"><NsIcon name="export" :size="16" /><span class="w">.obj</span></button>
+    </nav>
+
+    <!-- Bottom: how you look at the room -->
+    <div class="dock">
+      <p class="status">membrane form-found live · force density<span v-if="solveMs"> · {{ solveMs.toFixed(1) }} ms</span></p>
+      <div class="bar band" role="toolbar" aria-label="View">
+        <div class="grp sun" title="Time of day, equinox, Barcelona">
+          <NsIcon name="sun" :size="16" color="var(--ns-sun)" />
+          <label for="hour" class="t">{{ hourLabel }}</label>
+          <input id="hour" class="range" type="range" min="6.5" max="17.5" step="0.05" v-model.number="hour" aria-label="Time of day, equinox, Barcelona"
+            :style="{ '--c': 'var(--ns-sun)', '--f': (hour - 6.5) / 11 }" />
+          <button class="ib" @click="playDay" :disabled="reduceMotion" :aria-pressed="playing" :aria-label="playing ? 'Pause the day' : 'Play the day'"><NsIcon :name="playing ? 'pause' : 'play'" :size="12" /></button>
+        </div>
+        <span class="sep"></span>
+        <div class="seg" role="group" aria-label="View">
+          <button v-for="v in VIEWS" :key="v[0]" :class="{ on: mode === v[0] }" :aria-pressed="mode === v[0]" @click="mode = v[0]" :title="v[2]" :aria-label="v[2]">
+            <NsIcon :name="v[1]" :size="16" /><span class="w">{{ v[2] }}</span>
+          </button>
+        </div>
+        <Transition name="grow">
+          <div v-if="mode === 'plan'" class="grp cut" title="Plan cut height">
+            <NsIcon name="cut" :size="16" />
+            <input id="cut" class="range" type="range" min="0.3" :max="cutMax" step="0.1" v-model.number="cut" aria-label="Plan cut height"
+              :style="{ '--c': 'var(--ns-ink)', '--f': (cut - 0.3) / Math.max(0.1, cutMax - 0.3) }" />
+            <label for="cut" class="t">{{ cut >= cutMax - 0.05 ? 'roof' : cut.toFixed(1) + ' m' }}</label>
+          </div>
+        </Transition>
+        <span class="sep"></span>
+        <div class="seg" role="group" aria-label="Compare" title="Hold F to flip to the control">
+          <button :class="{ on: compare === 'variant' }" :aria-pressed="compare === 'variant'" @click="compare = 'variant'" aria-label="Variant"><NsIcon name="single" :size="16" /><span class="w">Variant</span></button>
+          <button :class="{ on: compare === 'control' }" :aria-pressed="compare === 'control'" @click="compare = 'control'" aria-label="Control"><span class="cdot"></span><span class="w">Control</span></button>
+          <button v-if="!narrow" :class="{ on: compare === 'split' }" :aria-pressed="compare === 'split'" @click="compare = 'split'" aria-label="Split"><NsIcon name="split" :size="16" /><span class="w">Split</span></button>
+        </div>
+        <kbd class="kbd" :class="{ on: flip }" title="Hold F to flip to the control" aria-hidden="true">F</kbd>
+        <span class="sep"></span>
+        <button class="ib" :class="{ on: materialConfig.pattern === 'grid' }" :aria-pressed="materialConfig.pattern === 'grid'"
+          @click="materialConfig.pattern = materialConfig.pattern === 'grid' ? 'solid' : 'grid'" title="Show the cable net the solver works on" aria-label="Cable net"><NsIcon name="net" :size="18" /></button>
+        <div class="swatches" :class="{ pop: compact }" role="group" aria-label="Membrane colour">
+          <button v-if="compact" class="sw cur" :style="{ background: materialConfig.color }" :aria-expanded="swatchOpen" aria-label="Membrane colour" @click="swatchOpen = !swatchOpen"></button>
+          <div v-if="!compact || swatchOpen" class="sw-list">
+            <button v-for="c in SWATCHES" :key="c.hex" class="sw" :class="{ on: materialConfig.color === c.hex }" :style="{ background: c.hex }"
+              :aria-label="c.label" :title="c.label" :aria-pressed="materialConfig.color === c.hex" @click="materialConfig.color = c.hex; swatchOpen = false"></button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -272,9 +309,9 @@ const research = computed(() => DIMS.map(d => ({
         <ScoreFlow :params="variant" />
         <p>A transparent weighted sum, not an instrument: it estimates, it never measures a body, and it makes no clinical claim. Band width is the most each slider can add; the bars fill with what your variant earns. The weights are public in the repo so they can be argued with.</p>
         <h3>The room</h3>
-        <p>One tensioned membrane, form-found in your browser with the force density method (Schek, 1974, written for Frei Otto's Munich Olympic roof). Every node of a cable net sits where its neighbours' pulls balance; with no pressure it is a soap film, with pressure a bubble.</p>
+        <p>One tensioned membrane, form-found in your browser with the force density method (Schek, 1974, written for Frei Otto's Munich Olympic roof). Every node of a cable net sits where its neighbours' pulls balance; with no pressure it is a soap film, with pressure a bubble, inflated only until its crown meets the ring.</p>
         <ul>
-          <li><b>Ceiling height</b> lifts the compression ring the film hangs from.</li>
+          <li><b>Ceiling height</b> lifts the compression ring the film hangs from: the ring is always the top of the room.</li>
           <li><b>Wall count and curvature</b>: the ground edge is a control polygon blended into its cubic B-spline; low curvature pulls taut ridge cables, high curvature inflates the film.</li>
           <li><b>Openings and window-to-wall</b>: superellipse arches, one per hour on the sun's path (equinox, Barcelona); their area is solved with the gamma function.</li>
           <li><b>Biomorphic form</b> warps the film up to about 40%; past about 55% it pleats into a regular, high-contrast repetition.</li>
@@ -298,73 +335,99 @@ const research = computed(() => DIMS.map(d => ({
     </LabDrawer>
 
     <!-- Report -->
-    <LabDrawer :open="drawer === 'report'" title="Report" @close="drawer = null">
-      <LabReport :control="control" :variant="variant" :control-score="controlScore" :variant-score="variantScore" :log="log" />
+    <LabDrawer :open="drawer === 'report'" title="Report" wide @close="drawer = null">
+      <LabReport :control="control" :variant="variant" :control-score="controlScore" :variant-score="variantScore" :log="log"
+        :question="question" :hour="hour" :color="materialConfig.color" />
     </LabDrawer>
-
-    <footer class="credit">
-      By <a href="https://www.linkedin.com/in/emilieelchidiac/" target="_blank" rel="noopener noreferrer">Emilie El Chidiac</a>
-      · research <a href="https://cleovalentine.io/" target="_blank" rel="noopener noreferrer">Dr. Cleo Valentine</a>
-    </footer>
   </div>
 </template>
 
 <style scoped>
 .lab { position: fixed; inset: 0; background: var(--ns-sunk); color: var(--ns-ink); font: var(--ns-t-body)/var(--ns-lh) var(--ns-sans); overflow: hidden; }
 
-/* stage: the room to the right of the card */
-.stage { position: absolute; inset: 0 0 0 416px; display: grid; grid-template-columns: 1fr; }
-.lab.split .stage { grid-template-columns: 1fr 1fr; }
+/* stage: full-bleed; in split the seam sits in the middle of what the card leaves */
+.stage { position: absolute; inset: 0; display: grid; grid-template-columns: 1fr; }
+.lab.split .stage { grid-template-columns: calc(var(--inset) + (100% - var(--inset)) / 2) 1fr; }
 .view { position: relative; margin: 0; min-width: 0; min-height: 0; }
-.lab.split .view:first-child { border-right: 1px solid var(--ns-line); }
-.tag { position: absolute; left: 50%; top: 72px; transform: translateX(-50%); font: 500 var(--ns-t-micro) var(--ns-mono); letter-spacing: .14em; text-transform: uppercase; background: var(--ns-surface); border: 1px solid var(--ns-line); padding: 5px 10px; border-radius: var(--ns-r-pill); pointer-events: none; white-space: nowrap; }
+.lab.split .view:first-child { box-shadow: 1px 0 0 var(--ns-line-strong); z-index: 1; }
+.tag { position: absolute; left: 50%; top: 64px; transform: translateX(-50%); font: 500 var(--ns-t-micro) var(--ns-mono); letter-spacing: .14em; text-transform: uppercase; background: var(--ns-surface); border: 1px solid var(--ns-line); padding: 5px 10px; border-radius: var(--ns-r-pill); pointer-events: none; white-space: nowrap; transition: left var(--ns-slow) var(--ns-ease); }
 .tag.dark { background: var(--ns-ink); color: #fff; border-color: var(--ns-ink); }
-.caption { position: absolute; left: 22px; top: 78px; margin: 0; font: var(--ns-t-ui) var(--ns-mono); color: var(--ns-mute); pointer-events: none; }
+.delta { position: absolute; top: 50%; left: calc(var(--inset) + (100% - var(--inset)) / 2); transform: translate(-50%, -50%); z-index: 2; width: 96px; height: 96px; border-radius: 50%;
+  background: var(--ns-surface); border: 1px solid var(--ns-line); box-shadow: var(--ns-e2); display: grid; place-content: center; text-align: center; gap: 2px; pointer-events: none;
+  transition: left var(--ns-slow) var(--ns-ease); }
+.delta b { font: 700 28px var(--ns-sans); letter-spacing: -.02em; line-height: 1; }
+.delta span { font: 9px/1.2 var(--ns-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ns-mute); }
+.delta.up b { color: var(--ns-green); } .delta.dn b { color: var(--ns-red); }
 
-.head { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: flex-start; gap: var(--ns-s4); padding: 14px 22px; pointer-events: none; }
-.head > * { pointer-events: auto; }
-.brand { margin: 0; font: 700 18px var(--ns-sans); letter-spacing: -.02em; }
-.brand span { color: var(--ns-red); }
-.claim { margin: 0; font-size: 12px; color: var(--ns-mute); }
-.head nav { margin-left: auto; display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
-.head nav button { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--ns-line); background: #fbfaf7e6; border-radius: var(--ns-r-control); padding: 6px 10px; font: 500 var(--ns-t-ui) var(--ns-mono); letter-spacing: .06em; text-transform: uppercase; cursor: pointer; color: var(--ns-ink); }
-.head nav button.red { color: var(--ns-red); }
+/* rail: brand, then the card; the card is as tall as its content, never taller than the rail */
+.rail { position: absolute; left: 16px; top: 14px; bottom: 16px; width: 360px; display: flex; flex-direction: column; gap: 10px; pointer-events: none; z-index: 5; }
+.rail > * { pointer-events: auto; }
+.brand h1 { margin: 0; font: 700 18px var(--ns-sans); letter-spacing: -.02em; line-height: 1.2; }
+.brand h1 span { color: var(--ns-red); }
+.brand p { margin: 2px 0 0; font-size: 12px; line-height: 1.35; color: var(--ns-ink-2); max-width: 340px; }
+.card { flex: 0 1 auto; min-height: 0; }
+.card :deep(.foot a) { color: inherit; text-underline-offset: 3px; }
 
-.card { position: absolute; left: 22px; top: 70px; bottom: 92px; width: 372px; }
-.lab.free .card { bottom: auto; max-height: calc(100% - 290px); }
+/* one bar style for both toolbars: a floating pill of 32-px controls */
+.bar { display: flex; align-items: center; gap: 6px; background: #fbfaf7ee; backdrop-filter: blur(8px); border: 1px solid var(--ns-line); border-radius: var(--ns-r-pill); box-shadow: var(--ns-e2); padding: 5px; font: var(--ns-t-ui) var(--ns-mono); white-space: nowrap; }
+.bar button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; min-width: 32px; padding: 0 10px; border: 0; background: none; border-radius: var(--ns-r-pill); font: 500 var(--ns-t-ui) var(--ns-mono); letter-spacing: .04em; cursor: pointer; color: var(--ns-ink); transition: background var(--ns-fast), color var(--ns-fast); }
+.bar button:hover { background: var(--ns-sunk); }
+.sep { width: 1px; height: 20px; background: var(--ns-line); flex: none; }
 
-.strip { position: absolute; left: 22px; right: 22px; bottom: 92px; display: grid; grid-template-columns: repeat(7, 1fr); gap: 18px; background: var(--ns-surface); border: 1px solid var(--ns-line); border-radius: var(--ns-r-card); box-shadow: var(--ns-e2); padding: 10px 16px 12px; }
+.docbar { position: absolute; top: 14px; right: 16px; z-index: 5; }
+.docbar button { text-transform: uppercase; letter-spacing: .08em; }
+.docbar .red { color: var(--ns-red); }
+.count { display: inline-grid; place-items: center; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--ns-red); color: #fff; font-size: 10px; letter-spacing: 0; }
 
-.logs { position: absolute; right: 22px; bottom: 92px; display: flex; gap: 10px; list-style: none; margin: 0; padding: 0; }
-.logs li { width: 150px; background: var(--ns-surface); border: 1px solid var(--ns-line); border-radius: 12px; padding: 8px; box-shadow: var(--ns-e2); display: flex; flex-direction: column; gap: 3px; }
-.logs img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 8px; background: var(--ns-paper); }
-.logs .k { font: 9.5px var(--ns-mono); color: var(--ns-mute); }
-.logs .s { font-weight: 700; }
-.logs em { font: normal 700 12px var(--ns-mono); }
-.up { color: var(--ns-green); } .dn { color: var(--ns-red); }
+.dock { position: absolute; bottom: 16px; left: calc(var(--inset) + (100% - var(--inset)) / 2); transform: translateX(-50%); z-index: 5; display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: calc(100% - var(--inset) - 32px); transition: left var(--ns-slow) var(--ns-ease); }
+.status { margin: 0; font: var(--ns-t-micro) var(--ns-mono); letter-spacing: .06em; color: var(--ns-mute); pointer-events: none; }
+.band { max-width: 100%; }
+.grp { display: flex; align-items: center; gap: 8px; padding: 0 4px 0 8px; }
+.grp .t { font: 500 var(--ns-t-ui) var(--ns-mono); min-width: 38px; }
+.cut .t { min-width: 40px; text-align: right; }
+.bar .ib { width: 32px; padding: 0; }
+.bar .ib.on { background: var(--ns-ink); color: #fff; }
+.seg { display: flex; gap: 2px; background: var(--ns-sunk); border-radius: var(--ns-r-pill); padding: 2px; }
+.bar .seg button { height: 28px; }
+.bar .seg button:hover { background: #fff; }
+.bar .seg button.on { background: var(--ns-ink); color: #fff; }
+.cdot { width: 14px; height: 14px; border-radius: 50%; border: 1.5px dashed currentColor; box-sizing: border-box; }
+.kbd { font: 500 10px var(--ns-mono); border: 1px solid var(--ns-line-strong); border-bottom-width: 2px; border-radius: 5px; padding: 1px 5px; color: var(--ns-mute); background: #fff; transition: all var(--ns-fast); }
+.kbd.on { background: var(--ns-ink); color: #fff; border-color: var(--ns-ink); }
 
-.band { position: absolute; left: calc(50% + 208px); transform: translateX(-50%); bottom: 22px; display: flex; align-items: center; gap: 10px; background: #fbfaf7f2; border: 1px solid var(--ns-line); border-radius: var(--ns-r-pill); box-shadow: var(--ns-e2); padding: 7px 10px 7px 14px; font: var(--ns-t-ui) var(--ns-mono); white-space: nowrap; max-width: calc(100% - 440px); }
-.sun { display: flex; align-items: center; gap: 8px; }
-.sun label { display: flex; align-items: center; gap: 6px; }
-.sun label span { width: 36px; }
-.sun input { width: 150px; accent-color: var(--ns-sun); margin: 0; }
-.pill { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--ns-line); background: #fff; border-radius: var(--ns-r-pill); padding: 5px 10px; font: var(--ns-t-ui) var(--ns-mono); cursor: pointer; color: var(--ns-ink); }
-.sep { width: 1px; height: 22px; background: var(--ns-line); flex: none; }
-.seg { display: flex; border: 1px solid var(--ns-line); border-radius: var(--ns-r-pill); overflow: hidden; background: #fff; }
-.seg button { display: inline-flex; align-items: center; gap: 5px; border: 0; border-right: 1px solid var(--ns-line); background: none; padding: 6px 10px; font: var(--ns-t-ui) var(--ns-mono); cursor: pointer; color: var(--ns-ink); }
-.seg button:last-child { border-right: 0; }
-.seg button.on { background: var(--ns-ink); color: #fff; }
-.hint { font: 9.5px var(--ns-mono); color: var(--ns-mute); border: 1px solid var(--ns-line); border-radius: 4px; padding: 1px 4px; }
-.icon-btn { border: 1px solid transparent; background: none; border-radius: 50%; padding: 4px; cursor: pointer; display: inline-flex; color: var(--ns-ink); }
-.icon-btn.on { border-color: var(--ns-ink); }
-.swatches { display: flex; gap: 6px; }
-.sw { width: 18px; height: 18px; border-radius: 50%; border: 1px solid #0002; cursor: pointer; padding: 0; }
+/* the time and cut sliders: the same thin filled track as the card's */
+.range { width: 120px; height: 20px; margin: 0; appearance: none; -webkit-appearance: none; cursor: pointer; background: none; }
+.range::-webkit-slider-runnable-track { height: 20px; border-radius: 2px;
+  background: linear-gradient(to right, var(--c) calc(var(--f) * 100%), var(--ns-line) calc(var(--f) * 100%)) center / 100% 4px no-repeat; }
+.range::-moz-range-track { height: 4px; background: var(--ns-line); }
+.range::-moz-range-progress { height: 4px; background: var(--c); }
+.range::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; margin-top: 3px; border-radius: 50%; background: #fff; border: 2px solid var(--c); box-shadow: var(--ns-e1); }
+.range::-moz-range-thumb { width: 10px; height: 10px; border-radius: 50%; background: #fff; border: 2px solid var(--c); }
+.cut .range { width: 96px; }
+
+.swatches { position: relative; display: flex; align-items: center; padding: 0 6px 0 2px; }
+.sw-list { display: flex; gap: 6px; }
+.swatches.pop .sw-list { position: absolute; bottom: 44px; right: -6px; background: var(--ns-surface); border: 1px solid var(--ns-line); border-radius: var(--ns-r-pill); box-shadow: var(--ns-e2); padding: 8px 10px; }
+.bar .sw { width: 18px; height: 18px; min-width: 0; padding: 0; border-radius: 50%; border: 1px solid #0002; transition: transform var(--ns-fast) var(--ns-ease); }
+.bar .sw:hover { transform: scale(1.12); }
 .sw.on { outline: 2px solid var(--ns-red); outline-offset: 2px; }
 
+/* tight: the band runs under the card, full width */
+.lab.tight .rail { bottom: 78px; }
+.lab.tight .dock { left: 50%; max-width: calc(100% - 32px); }
+.lab.tight .status { display: none; }
+/* collapsed split: the tags sit under the mini card */
+.lab.collapsed.split .tag { top: 132px; }
+
+/* compact: icons only */
+.lab.compact .w { display: none; }
+.lab.compact .range { width: 84px; }
+.lab.compact .cut .range { width: 64px; }
+
+.grow-enter-active, .grow-leave-active { transition: opacity var(--ns-slow) var(--ns-ease), max-width var(--ns-slow) var(--ns-ease); overflow: hidden; max-width: 260px; }
+.grow-enter-from, .grow-leave-to { opacity: 0; max-width: 0; }
+
 .toast { position: absolute; left: 50%; top: 20px; transform: translateX(-50%); margin: 0; background: var(--ns-ink); color: #fff; font: var(--ns-t-ui) var(--ns-mono); padding: 8px 14px; border-radius: var(--ns-r-pill); z-index: 60; }
-.credit { position: absolute; left: 22px; bottom: 30px; margin: 0; font: var(--ns-t-ui) var(--ns-mono); color: var(--ns-mute); width: 372px; }
-.credit a { color: inherit; text-underline-offset: 3px; }
-.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .lab button:focus-visible, .lab input:focus-visible, .lab a:focus-visible { outline: 2px solid var(--ns-red); outline-offset: 2px; }
 
 .doc { padding: var(--ns-s5) 26px 40px; font-size: 14px; line-height: 1.6; color: var(--ns-ink-2); }
@@ -379,20 +442,18 @@ const research = computed(() => DIMS.map(d => ({
 .rules .risk-high b { color: var(--ns-red); } .rules .risk-low b { color: var(--ns-green); }
 .ev p { margin: 0 0 4px; font-size: 13px; }
 .src { font: var(--ns-t-ui) var(--ns-mono); color: var(--ns-mute); margin-bottom: 10px !important; }
+@media (prefers-reduced-motion: reduce) { .tag, .delta, .dock { transition: none; } }
 
-/* Phones and narrow windows: room on top, the card below it, the band on the room */
+/* Phones and narrow windows: brand and tools on top, the room, its band, then the card */
 .lab.narrow { position: static; overflow: visible; min-height: 100vh; display: flex; flex-direction: column; }
-.lab.narrow .head { position: static; flex-wrap: wrap; padding: 12px 14px; background: var(--ns-surface); border-bottom: 1px solid var(--ns-line); }
-.lab.narrow .head nav { margin-left: 0; justify-content: flex-start; }
-.lab.narrow .stage { position: sticky; top: 0; height: 52vh; inset: auto; z-index: 4; background: var(--ns-sunk); }
-.lab.narrow .caption { display: none; }
+.lab.narrow .rail { display: contents; }
+.lab.narrow .brand { order: 0; padding: 12px 14px 0; }
+.lab.narrow .docbar { order: 1; position: static; margin: 8px 12px; align-self: flex-start; box-shadow: none; flex-wrap: wrap; }
+.lab.narrow .stage { order: 2; position: sticky; top: 0; height: 52vh; inset: auto; z-index: 4; background: var(--ns-sunk); }
 .lab.narrow .tag { top: 12px; }
-.lab.narrow .band { position: sticky; top: 52vh; left: auto; transform: none; border-radius: 0; max-width: none; flex-wrap: wrap; white-space: normal; z-index: 4; margin: 0; }
-.lab.narrow .sun { flex: 1 1 100%; } .lab.narrow .sun input { flex: 1; width: auto; }
-.lab.narrow .hint { display: none; }
-.lab.narrow .card { position: static; width: auto; margin: 12px; max-height: none; }
-.lab.narrow .strip { position: static; grid-template-columns: 1fr; margin: 0 12px 12px; }
-.lab.narrow .credit { position: static; width: auto; padding: 0 14px 24px; }
-.lab.narrow .head { order: 0; } .lab.narrow .stage { order: 1; } .lab.narrow .band { order: 2; }
-.lab.narrow .card { order: 3; } .lab.narrow .strip { order: 4; } .lab.narrow .credit { order: 5; }
+.lab.narrow .dock { order: 3; position: sticky; top: 52vh; left: auto; transform: none; max-width: none; z-index: 4; }
+.lab.narrow .status { display: none; }
+.lab.narrow .band { border-radius: 0; flex-wrap: wrap; white-space: normal; justify-content: center; box-shadow: none; width: 100%; box-sizing: border-box; }
+.lab.narrow .kbd { display: none; }
+.lab.narrow .card { order: 4; margin: 12px; }
 </style>

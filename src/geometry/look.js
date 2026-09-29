@@ -50,9 +50,11 @@ export function createRigging(units) {
   function update(room) {
     const e = room.edge, n = e.length / 3 - 1
     pts.length = 0
-    for (let i = 0; i < n; i += 2) pts.push(new THREE.Vector3(e[3 * i], e[3 * i + 1] + 0.02 * units, e[3 * i + 2]))
+    // every edge node, centripetal: the cable follows the arch corners without
+    // overshooting them, so it stays on the film's hem
+    for (let i = 0; i < n; i++) pts.push(new THREE.Vector3(e[3 * i], e[3 * i + 1], e[3 * i + 2]))
     edge.geometry.dispose()
-    edge.geometry = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, true), pts.length, 0.022 * units, 5, true)
+    edge.geometry = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, true, 'centripetal'), pts.length * 2, 0.022 * units, 6, true)
     const r = room.ring
     ring.position.set(r.x * units, r.y * units, r.z * units)
     ring.rotation.set(Math.PI / 2 + r.tiltX, 0, r.tiltZ)
