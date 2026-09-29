@@ -132,6 +132,8 @@ function gridGeometry(cols, rows) {
   const normals = new Float32Array(n * 3)
   for (let i = 1; i < normals.length; i += 3) normals[i] = 1          // floor: up; the membrane is recomputed
   g.setAttribute('normal', new THREE.BufferAttribute(normals, 3).setUsage(THREE.DynamicDrawUsage))
+  // ambient occlusion baked from the geometry each write (vertex colour, multiplies the material)
+  g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3).fill(1), 3).setUsage(THREE.DynamicDrawUsage))
   const idx = new Uint32Array(cols * rows * 6)
   let k = 0
   for (let i = 0; i < rows; i++) for (let j = 0; j < cols; j++) {
@@ -245,6 +247,7 @@ export function writeRoom(room, p, opts = {}) {
     }
     edgeY[j] = y
   }
+  room.edgeY = edgeY
   const glazed = k * 2 * aHalf * hA * G
 
   // Prestress: a ridge cable from each plan corner; hoop/radial ratio κ²; pressure
@@ -305,7 +308,7 @@ export function writeRoom(room, p, opts = {}) {
   room.solved = true
 
   // Membrane vertices (pleats along the normal past ~55% biomorphic)
-  const mp = room.membrane.attributes.position.array, muv = room.membrane.attributes.uv.array
+  const mp = room.membrane.attributes.position.array, muv = room.membrane.attributes.uv.array, mc = room.membrane.attributes.color.array
   let maxR = 0, maxY = H
   for (let i = 0; i <= NT; i++) {
     const t = i * dt, pleat = hi * 0.2 * Math.sin(Math.PI * t)
@@ -323,6 +326,8 @@ export function writeRoom(room, p, opts = {}) {
       maxR = Math.max(maxR, Math.hypot(x, z)); maxY = Math.max(maxY, y)
       const v = i * (NS + 1) + jj
       mp[3 * v] = x * U; mp[3 * v + 1] = y * U; mp[3 * v + 2] = z * U
+      const ao = 0.72 + 0.28 * smooth(0, 1.4, y)            // contact shadow where the film meets the ground
+      mc[3 * v] = mc[3 * v + 1] = mc[3 * v + 2] = ao
       muv[2 * v] = (jj / NS) * (P / 2); muv[2 * v + 1] = t * (H / 2)
     }
   }
@@ -332,12 +337,14 @@ export function writeRoom(room, p, opts = {}) {
     room.edge[3 * jj] = mp[3 * v]; room.edge[3 * jj + 1] = mp[3 * v + 1]; room.edge[3 * jj + 2] = mp[3 * v + 2]
   }
   // Floor, with uvs in metres for a timber texture
-  const fp = room.floor.attributes.position.array, fuv = room.floor.attributes.uv.array
+  const fp = room.floor.attributes.position.array, fuv = room.floor.attributes.uv.array, fc = room.floor.attributes.color.array
   for (let i = 0; i <= 10; i++) for (let jj = 0; jj <= NS; jj++) {
     const j = jj % NS, q = i / 10, v = i * (NS + 1) + jj
     const x = R[j] * Math.cos(theta[j]) * q, z = R[j] * Math.sin(theta[j]) * q
     fp[3 * v] = x * U; fp[3 * v + 1] = 0; fp[3 * v + 2] = z * U
     fuv[2 * v] = x; fuv[2 * v + 1] = z
+    const ao = 1 - 0.34 * smooth(0.72, 1, q) * (1 - smooth(0.15, 1.2, edgeY[j]))   // open under the arches
+    fc[3 * v] = fc[3 * v + 1] = fc[3 * v + 2] = ao
   }
   // The net the solver works on: radial cables shaded by their force density
   const np = room.net.attributes.position.array, nc = room.net.attributes.color.array
@@ -355,6 +362,7 @@ export function writeRoom(room, p, opts = {}) {
   for (const g of [room.membrane, room.floor]) {
     g.attributes.position.needsUpdate = true
     g.attributes.uv.needsUpdate = true
+    g.attributes.color.needsUpdate = true
     g.computeBoundingBox(); g.computeBoundingSphere()
   }
   room.net.attributes.position.needsUpdate = true

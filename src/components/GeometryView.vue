@@ -28,7 +28,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { createRoom, writeRoom, roomParams, sunVector, UNITS_PER_M } from '@/geometry/membrane.js'
-import { fabricUniforms, makeTranslucent, updateFabric, createRigging, timberTexture } from '@/geometry/look.js'
+import { fabricUniforms, makeTranslucent, updateFabric, createRigging, timberTexture, weaveTexture, createShafts } from '@/geometry/look.js'
 
 const props = defineProps(['data', 'score', 'mode', 'sunHour', 'showSurroundings', 'materialConfig'])
 const emits = defineEmits(['plantCountChanged'])
@@ -44,6 +44,8 @@ let surroundingsGroup = null
 const PATTERN_NONE = 'solid'
 const PATTERN_WIREFRAME = 'wireframe'
 const PATTERN_GRID = 'grid'
+
+const weave = weaveTexture()
 
 function buildMeshMaterial() {
   const cfg = props.materialConfig || {}
@@ -76,6 +78,9 @@ function buildMeshMaterial() {
     sheen: 0.6,
     sheenRoughness: 0.8,
     sheenColor: new THREE.Color('#fff6ea'),
+    vertexColors: true,                 // ambient occlusion baked from the geometry
+    bumpMap: weave,
+    bumpScale: 0.3,
   })
 }
 
@@ -184,7 +189,7 @@ function init() {
   scene.add(axesHelper)
 
   // Sky above, warm bounce from the floor below; its colours follow the score.
-  hemiLight = new THREE.HemisphereLight(0xdfe7ef, 0xb49c80, 0.9)
+  hemiLight = new THREE.HemisphereLight(0xdfe7ef, 0xb49c80, 0.6)
   scene.add(hemiLight)
 
   // Sun light — position and color are driven by updateSunPosition()
@@ -400,6 +405,7 @@ function updateSunPosition(hour) {
   const low = 1 - Math.min(1, sunDir.y / 0.6)          // warmer and dimmer toward the horizon
   sunLight.color.setRGB(1.0, 0.95 - 0.2 * low, 0.86 - 0.35 * low)
   sunLight.intensity = 1.6 + 1.6 * (1 - low)
+  if (shafts && shown) shafts.update(room, sunDir)
 }
 
 // ── Surroundings ─────────────────────────────────────────────────────────────
@@ -413,7 +419,7 @@ function buildSurroundings() {
   const GRID_SIZE = (RANGE * 2 + 1) * SPACING   // 1050 — finite square
 
   // Finite ground plane — clean square, no fog
-  const groundMat = new THREE.MeshStandardMaterial({ color: 0xD8D8D8, roughness: 0.95, metalness: 0 })
+  const groundMat = new THREE.MeshStandardMaterial({ color: 0xe4dccf, roughness: 0.95, metalness: 0 })
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(GRID_SIZE, GRID_SIZE), groundMat)
   ground.rotation.x = -Math.PI / 2
   ground.position.y = -0.02
@@ -421,7 +427,7 @@ function buildSurroundings() {
   surroundingsGroup.add(ground)
 
   // Roads — span only the grid, between block centres
-  const roadMat = new THREE.MeshStandardMaterial({ color: 0x555555, roughness: 0.9, metalness: 0 })
+  const roadMat = new THREE.MeshStandardMaterial({ color: 0xd3c9ba, roughness: 0.9, metalness: 0 })
   for (let g = -RANGE; g < RANGE; g++) {
     const pos = (g + 0.5) * SPACING
     const ns = new THREE.Mesh(new THREE.PlaneGeometry(ROAD_W, GRID_SIZE), roadMat)
@@ -435,16 +441,19 @@ function buildSurroundings() {
   }
 
   // Buildings — sparse: skip centre block + ~45% of others left empty
-  const buildingMat = new THREE.MeshStandardMaterial({ color: 0xE2E0DC, roughness: 0.85, metalness: 0 })
+  const buildingMat = new THREE.MeshStandardMaterial({ color: 0xebe5dc, roughness: 0.85, metalness: 0 })
+  // seeded, so the context is the same block on every visit
+  let seed = 20260929
+  const random = () => ((seed = (seed * 16807) % 2147483647) / 2147483647)
   for (let gx = -RANGE; gx <= RANGE; gx++) {
     for (let gz = -RANGE; gz <= RANGE; gz++) {
       if (gx === 0 && gz === 0) continue      // neurospace block
-      if (Math.random() < 0.45) continue       // empty plot
+      if (random() < 0.45) continue       // empty plot
       const x = gx * SPACING
       const z = gz * SPACING
-      const h = 30 + Math.random() * 120
-      const w = 100 + Math.random() * 70
-      const d = 100 + Math.random() * 70
+      const h = 30 + random() * 120
+      const w = 100 + random() * 70
+      const d = 100 + random() * 70
       const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), buildingMat)
       mesh.position.set(x, h / 2, z)
       mesh.castShadow = false
@@ -709,6 +718,7 @@ const MORPH_RATE = 7   // per second: a slider change settles in about half a se
 let shown = null       // the parameter state on screen, easing toward `target`
 let target = null
 let rigging = null
+let shafts = null
 let netLines = null
 let settle = 0
 
@@ -717,18 +727,20 @@ function buildRoomMeshes() {
   const membrane = new THREE.Mesh(room.membrane, makeTranslucent(buildMeshMaterial(), fabricU))
   membrane.userData.tinted = true
   membrane.castShadow = membrane.receiveShadow = true
-  const floor = new THREE.Mesh(room.floor, new THREE.MeshStandardMaterial({ map: timberTexture(renderer), roughness: 0.5, envMapIntensity: 0.45 }))
+  const floor = new THREE.Mesh(room.floor, new THREE.MeshStandardMaterial({ map: timberTexture(renderer), roughness: 0.5, envMapIntensity: 0.45, vertexColors: true }))
   floor.receiveShadow = true
   netLines = new THREE.LineSegments(room.net, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.55 }))
   netLines.visible = (props.materialConfig?.pattern) === PATTERN_GRID
   rigging = createRigging(UNITS_PER_M)
+  shafts = createShafts(UNITS_PER_M)
   loadedObject.add(membrane, floor, netLines, rigging.group)
-  scene.add(loadedObject)
+  scene.add(loadedObject, shafts.mesh)
 }
 
 function write(first = false) {
   writeRoom(room, shown, first ? {} : undefined)
   rigging?.update(room)
+  shafts?.update(room, sunDir)
   updateFrameGoal()
 }
 
