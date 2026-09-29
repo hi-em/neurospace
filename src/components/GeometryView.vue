@@ -26,14 +26,17 @@
 import { onMounted, onBeforeUnmount, watch, ref, computed } from 'vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls'
-import { createRoom, writeRoom, roomParams, UNITS_PER_M } from '@/geometry/room.js'
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
+import { createRoom, writeRoom, roomParams, sunVector, UNITS_PER_M } from '@/geometry/membrane.js'
+import { fabricUniforms, makeTranslucent, updateFabric, createRigging, timberTexture } from '@/geometry/look.js'
 
-const props = defineProps(['data', 'mode', 'sunHour', 'showSurroundings', 'materialConfig'])
+const props = defineProps(['data', 'score', 'mode', 'sunHour', 'showSurroundings', 'materialConfig'])
 const emits = defineEmits(['plantCountChanged'])
 
 // Three.js objects
 let renderer, perspCamera, orthoCamera, activeCamera
-let scene, orbitControls, container, axesHelper, groundPlane, sunLight
+let scene, orbitControls, container, axesHelper, groundPlane, sunLight, hemiLight
+const isPhone = window.matchMedia?.('(max-width: 768px), (pointer: coarse)').matches
 let loadedObject = null
 let surroundingsGroup = null
 
@@ -64,11 +67,15 @@ function buildMeshMaterial() {
     opacity,
     clearcoat,
     clearcoatRoughness,
+    envMapIntensity: 0.35,
     wireframe: isWireframe,
-    // Faces point into the room: from outside the near wall and the ceiling
-    // are culled, so the room reads open, yet both still cast the sun's shadow.
-    side: THREE.FrontSide,
+    // Fabric: both faces drawn so the envelope reads as a solid from outside
+    // and as a lit skin from inside; a little sheen for the weave.
+    side: THREE.DoubleSide,
     shadowSide: THREE.DoubleSide,
+    sheen: 0.6,
+    sheenRoughness: 0.8,
+    sheenColor: new THREE.Color('#fff6ea'),
   })
 }
 
@@ -77,14 +84,11 @@ function applyMaterialConfig() {
   const cfg = props.materialConfig || {}
   const pattern = cfg.pattern || PATTERN_NONE
 
-  // Clean up existing grid overlays
-  cleanupGridOverlays()
-
   const mat = buildMeshMaterial()
   loadedObject.traverse((child) => {
     if (child.isMesh && child.userData.tinted) {
       const hadClip = child.material.clippingPlanes && child.material.clippingPlanes.length > 0
-      child.material = mat.clone()
+      child.material = makeTranslucent(mat.clone(), fabricU)
       if (hadClip && cutPlaneEnabled.value) {
         child.material.clippingPlanes = [cutPlane]
         child.material.clipShadows = true
@@ -93,39 +97,13 @@ function applyMaterialConfig() {
     }
   })
 
-  // Add grid lines overlay if pattern is grid
-  if (pattern === PATTERN_GRID) {
-    addGridOverlay()
-  }
-}
-
-// Grid overlay helpers
-let gridOverlays = []
-
-function addGridOverlay() {
-  if (!loadedObject) return
-  const gridMat = new THREE.LineBasicMaterial({ color: 0x333333, linewidth: 1 })
-  loadedObject.traverse((child) => {
-    if (child.isMesh && child.geometry) {
-      const edges = new THREE.EdgesGeometry(child.geometry, 15)
-      const line = new THREE.LineSegments(edges, gridMat)
-      child.add(line)
-      gridOverlays.push(line)
-    }
-  })
-}
-
-function cleanupGridOverlays() {
-  gridOverlays.forEach(l => {
-    if (l.parent) l.parent.remove(l)
-    l.geometry?.dispose()
-    l.material?.dispose()
-  })
-  gridOverlays = []
+  // The Grid pattern shows the cable net the form-finding solves, ridge
+  // cables darker by their force density.
+  if (netLines) netLines.visible = pattern === PATTERN_GRID
 }
 
 // Cut plane (plan view section)
-const cutPlaneHeight = ref(10)
+const cutPlaneHeight = ref(1.5)   // a plan is cut at door height: the arches read as gaps
 const cutPlaneEnabled = ref(false)
 let cutPlane = null
 
@@ -172,6 +150,8 @@ function init() {
   renderer.shadowMap.type = THREE.PCFSoftShadowMap
   renderer.localClippingEnabled = true
   renderer.outputColorSpace = THREE.SRGBColorSpace
+  renderer.toneMapping = THREE.ACESFilmicToneMapping
+  renderer.toneMappingExposure = 1.05
   container.appendChild(renderer.domElement)
 
   const aspect = container.offsetWidth / container.offsetHeight
@@ -193,30 +173,41 @@ function init() {
   scene = new THREE.Scene()
   scene.background = new THREE.Color('#E8E8E8')
 
+  // Image-based light for the physically based materials: a soft studio room,
+  // kept low so the sun through the openings stays the event.
+  const pmrem = new THREE.PMREMGenerator(renderer)
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+  pmrem.dispose()
+
   axesHelper = new THREE.AxesHelper(5)
+  axesHelper.visible = false
   scene.add(axesHelper)
 
-  // Neutral white ambient so geometry reads true colour
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.55)
-  scene.add(ambientLight)
+  // Sky above, warm bounce from the floor below; its colours follow the score.
+  hemiLight = new THREE.HemisphereLight(0xdfe7ef, 0xb49c80, 0.9)
+  scene.add(hemiLight)
 
   // Sun light — position and color are driven by updateSunPosition()
   sunLight = new THREE.DirectionalLight(0xfffbe8, 2.0)
   sunLight.position.set(300, 500, 200)
   sunLight.castShadow = true
-  sunLight.shadow.mapSize.width = 2048
-  sunLight.shadow.mapSize.height = 2048
-  sunLight.shadow.camera.near = 1
-  sunLight.shadow.camera.far = 2000
-  sunLight.shadow.camera.left = -400
-  sunLight.shadow.camera.right = 400
-  sunLight.shadow.camera.top = 400
-  sunLight.shadow.camera.bottom = -400
-  sunLight.shadow.bias = -0.0005
+  // Shadow frustum fitted to the room, not the city: sharp window edges on the
+  // floor matter more than the context buildings, which do not cast.
+  const shadowRes = isPhone ? 1024 : 2048
+  sunLight.shadow.mapSize.set(shadowRes, shadowRes)
+  sunLight.shadow.camera.near = 300
+  sunLight.shadow.camera.far = 900
+  sunLight.shadow.camera.left = -75
+  sunLight.shadow.camera.right = 75
+  sunLight.shadow.camera.top = 75
+  sunLight.shadow.camera.bottom = -75
+  sunLight.shadow.bias = -0.0004
+  sunLight.shadow.normalBias = 0.25
+  sunLight.shadow.radius = 3
   scene.add(sunLight)
 
   // Soft sky fill from the opposite side — no shadows
-  const skyFill = new THREE.DirectionalLight(0xc9e8ff, 0.4)
+  const skyFill = new THREE.DirectionalLight(0xc9e8ff, 0.25)
   skyFill.position.set(-200, 300, -100)
   scene.add(skyFill)
 
@@ -329,9 +320,11 @@ function setViewWalk() {
   const size = box.getSize(new THREE.Vector3())
   const maxDim = Math.max(size.x, size.z)
 
-  perspCamera.position.set(center.x, eyeHeight, center.z + maxDim * 1.5)
-  cameraYaw = 0
-  cameraPitch = 0
+  // start inside, at the back of the room, facing the arches on the sun side
+  const front = new THREE.Vector3(Math.sin(2.6), 0, -Math.cos(2.6))
+  perspCamera.position.set(center.x - front.x * maxDim * 0.28, eyeHeight, center.z - front.z * maxDim * 0.28)
+  cameraYaw = Math.atan2(-front.x, -front.z)
+  cameraPitch = 0.12
   perspCamera.rotation.y = cameraYaw
   perspCamera.rotation.x = cameraPitch
 }
@@ -351,12 +344,13 @@ function setViewIsometric() {
   }
 
   const distance = maxDim * 2
-  // True isometric: camera along (-1,1,-1) from center
-  orthoCamera.position.set(center.x - distance, center.y + distance, center.z - distance)
+  // Stand south-south-east, facing the arches the sun path puts on the south side.
+  const front = new THREE.Vector3(Math.sin(2.6), 0, -Math.cos(2.6))
+  orthoCamera.position.set(center.x + front.x * distance, center.y + distance * 0.8, center.z + front.z * distance)
   orthoCamera.up.set(0, 1, 0)
   orthoCamera.lookAt(center)
 
-  updateOrthoFrustum(maxDim * 0.85)
+  updateOrthoFrustum(maxDim * 0.8)
   orbitControls.target.copy(center)
   orbitControls.update()
 }
@@ -397,26 +391,15 @@ function updateOrthoFrustum(halfSize) {
 
 // ── Sun position ──────────────────────────────────────────────────────────────
 
+// The same solar model the openings are placed with: equinox, Barcelona.
+const sunDir = new THREE.Vector3(0, 1, 0)
 function updateSunPosition(hour) {
   if (!sunLight) return
-  const t = (hour - 6) / 12                        // 0 → 1 (sunrise → sunset)
-  const azimuth = t * Math.PI                       // east → west arc (0 → π)
-  const elev    = Math.sin(t * Math.PI)             // 0 → 1 → 0 (peak at noon)
-  const elevRad = elev * (Math.PI / 2)
-  const dist    = 600
-
-  sunLight.position.set(
-    Math.cos(azimuth) * Math.cos(elevRad) * dist,
-    Math.sin(elevRad) * dist,
-    Math.sin(azimuth) * Math.cos(elevRad) * dist * 0.6
-  )
-
-  // Warm orange near horizon → warm white at noon
-  const warmth = 1 - elev
-  sunLight.color.setRGB(1.0, 0.97 - warmth * 0.25, 0.91 - warmth * 0.45)
-
-  // Dimmer at dawn/dusk, brightest at noon (kept softer for translucent material)
-  sunLight.intensity = 0.4 + elev * 1.1
+  sunVector(hour, undefined, sunDir)
+  sunLight.position.copy(sunDir).multiplyScalar(600)
+  const low = 1 - Math.min(1, sunDir.y / 0.6)          // warmer and dimmer toward the horizon
+  sunLight.color.setRGB(1.0, 0.95 - 0.2 * low, 0.86 - 0.35 * low)
+  sunLight.intensity = 1.6 + 1.6 * (1 - low)
 }
 
 // ── Surroundings ─────────────────────────────────────────────────────────────
@@ -479,6 +462,7 @@ function buildSurroundings() {
 
 function applyMode() {
   if (!orbitControls) return
+  updateFrameGoal()
   if (props.mode === 'walk') {
     orbitControls.enabled = false
     activeCamera = perspCamera
@@ -552,7 +536,7 @@ function createPottedPlant(sizeKey) {
 
   // Pot
   const potGeo = new THREE.CylinderGeometry(cfg.potRadius, cfg.potRadius * 0.72, cfg.potHeight, 16)
-  const potMat = new THREE.MeshPhongMaterial({ color: 0xB5651D, shininess: 40 })
+  const potMat = new THREE.MeshStandardMaterial({ color: 0xb8653a, roughness: 0.85 })
   const pot = new THREE.Mesh(potGeo, potMat)
   pot.position.y = cfg.potHeight / 2
   pot.castShadow = true
@@ -569,33 +553,38 @@ function createPottedPlant(sizeKey) {
 
   // Soil
   const soilGeo = new THREE.CylinderGeometry(cfg.potRadius * 0.94, cfg.potRadius * 0.94, 0.2, 16)
-  const soilMat = new THREE.MeshPhongMaterial({ color: 0x3E2723 })
+  const soilMat = new THREE.MeshStandardMaterial({ color: 0x3e2723, roughness: 1 })
   const soil = new THREE.Mesh(soilGeo, soilMat)
   soil.position.y = cfg.potHeight - 0.1
   plant.add(soil)
 
-  // Foliage cluster
+  // Foliage: leaves on the golden angle (phyllotaxis), one instanced draw per plant
   const s = cfg.foliageScale
-  const leafMat = new THREE.MeshPhongMaterial({ color: 0x4CAF50, shininess: 30 })
-  const foliage = [
-    { x: 0,       y: cfg.potHeight + 2.3 * s, z: 0,       r: 1.8 * s },
-    { x: 0.9 * s, y: cfg.potHeight + 1.5 * s, z: 0.6 * s, r: 1.3 * s },
-    { x: -0.8*s,  y: cfg.potHeight + 1.7 * s, z: -0.5*s,  r: 1.2 * s },
-    { x: 0.3*s,   y: cfg.potHeight + 2.9 * s, z: -0.4*s,  r: 1.1 * s },
-    { x: -0.5*s,  y: cfg.potHeight + 1.3 * s, z: 0.8*s,   r: 1.0 * s },
-  ]
-  foliage.forEach(({ x, y, z, r }) => {
-    const geo = new THREE.SphereGeometry(r, 12, 10)
-    const mesh = new THREE.Mesh(geo, leafMat)
-    mesh.position.set(x, y, z)
-    mesh.castShadow = true
-    plant.add(mesh)
-  })
+  const leafCount = Math.round(34 + 30 * s)
+  const leafGeo = new THREE.SphereGeometry(1, 8, 6).scale(0.32 * s, 0.05 * s, 0.95 * s).translate(0, 0, 0.8 * s)
+  const leafMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.55, side: THREE.DoubleSide })
+  const leaves = new THREE.InstancedMesh(leafGeo, leafMat, leafCount)
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler()
+  const col = new THREE.Color()
+  const GOLDEN = Math.PI * (3 - Math.sqrt(5))
+  for (let i = 0; i < leafCount; i++) {
+    const f = i / leafCount
+    // young leaves stand up at the crown, older ones arch out below
+    e.set(-0.2 + 1.25 * f, i * GOLDEN, 0, 'YXZ')
+    q.setFromEuler(e)
+    const k = 0.9 + 0.18 * Math.sin(i * 12.9898)
+    m.compose(new THREE.Vector3(0, cfg.potHeight + (2.6 - 1.9 * f) * s, 0), q, new THREE.Vector3(k, k, k))
+    leaves.setMatrixAt(i, m)
+    leaves.setColorAt(i, col.setHSL(0.27 + 0.05 * f, 0.55, 0.26 + 0.12 * (1 - f)))
+  }
+  leaves.castShadow = true
+  leaves.receiveShadow = true
+  plant.add(leaves)
 
   // Stem
-  const stemH = 1.5 * s
-  const stemGeo = new THREE.CylinderGeometry(0.12 * s, 0.18 * s, stemH, 8)
-  const stemMat = new THREE.MeshPhongMaterial({ color: 0x33691E })
+  const stemH = 2.2 * s
+  const stemGeo = new THREE.CylinderGeometry(0.1 * s, 0.16 * s, stemH, 8)
+  const stemMat = new THREE.MeshStandardMaterial({ color: 0x4a6b2a, roughness: 0.8 })
   const stem = new THREE.Mesh(stemGeo, stemMat)
   stem.position.y = cfg.potHeight + stemH / 2
   stem.castShadow = true
@@ -711,41 +700,66 @@ function onDrop(e) {
   addPlantAtScreen(sizeKey, e.clientX, e.clientY)
 }
 
-// ── Room (geometry in code, see geometry/room.js) ────────────────────────────
+// ── Room (form-found in code, see geometry/membrane.js) ──────────────────────
 
 const room = createRoom()
+const fabricU = fabricUniforms()
 const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 const MORPH_RATE = 7   // per second: a slider change settles in about half a second
 let shown = null       // the parameter state on screen, easing toward `target`
 let target = null
-
-function sunAngle() {
-  return Math.atan2(sunLight.position.z, sunLight.position.x)
-}
+let rigging = null
+let netLines = null
+let settle = 0
 
 function buildRoomMeshes() {
-  const floorMat = new THREE.MeshStandardMaterial({ color: 0xcdbb9f, roughness: 0.75 })
   loadedObject = new THREE.Group()
-  for (const [geometry, role] of [[room.walls, 'walls'], [room.floor, 'floor'], [room.ceiling, 'ceiling']]) {
-    const mesh = new THREE.Mesh(geometry, role === 'floor' ? floorMat : buildMeshMaterial())
-    mesh.userData.tinted = role !== 'floor'
-    mesh.castShadow = role !== 'floor'
-    mesh.receiveShadow = true
-    loadedObject.add(mesh)
-  }
+  const membrane = new THREE.Mesh(room.membrane, makeTranslucent(buildMeshMaterial(), fabricU))
+  membrane.userData.tinted = true
+  membrane.castShadow = membrane.receiveShadow = true
+  const floor = new THREE.Mesh(room.floor, new THREE.MeshStandardMaterial({ map: timberTexture(renderer), roughness: 0.5, envMapIntensity: 0.45 }))
+  floor.receiveShadow = true
+  netLines = new THREE.LineSegments(room.net, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.55 }))
+  netLines.visible = (props.materialConfig?.pattern) === PATTERN_GRID
+  rigging = createRigging(UNITS_PER_M)
+  loadedObject.add(membrane, floor, netLines, rigging.group)
   scene.add(loadedObject)
+}
+
+function write(first = false) {
+  writeRoom(room, shown, first ? {} : undefined)
+  rigging?.update(room)
+  updateFrameGoal()
+}
+
+// The orthographic views keep the whole room in frame as it grows or shrinks.
+const frameGoal = { size: 0, y: 0 }
+function updateFrameGoal() {
+  const b = room.bounds
+  frameGoal.size = props.mode === 'plan' ? b.radius * 1.25 : Math.max(b.radius * 1.3, b.height * 0.88)
+  frameGoal.y = props.mode === 'plan' ? 0 : b.height * 0.38
+}
+function frameStep(dt) {
+  if (props.mode === 'walk' || !frameGoal.size) return
+  const a = reduceMotion ? 1 : 1 - Math.exp(-5 * dt)
+  const ds = frameGoal.size - orthoFrustumSize, dy = frameGoal.y - orbitControls.target.y
+  if (Math.abs(ds) < 0.01 && Math.abs(dy) < 0.01) return
+  updateOrthoFrustum(orthoFrustumSize + ds * a)
+  orbitControls.target.y += dy * a
+  orthoCamera.position.y += dy * a
 }
 
 function setTarget(data) {
   target = roomParams(data)
   if (!shown || reduceMotion) {
+    const first = !shown
     shown = { ...target }
-    writeRoom(room, shown, sunAngle())
+    write(first)
   }
 }
 
-// Ease every parameter toward its slider value and rewrite the same buffers:
-// the room morphs, it is never rebuilt.
+// Ease every parameter toward its slider value and re-solve the same net from
+// where it was: the membrane morphs, it is never rebuilt.
 function morphStep(dt) {
   if (!target || !shown) return
   const a = 1 - Math.exp(-MORPH_RATE * dt)
@@ -756,7 +770,28 @@ function morphStep(dt) {
     shown[k] = Math.abs(d) < 1e-3 ? target[k] : shown[k] + d * a
     changed = true
   }
-  if (changed) writeRoom(room, shown, sunAngle())
+  // keep relaxing for a moment after the sliders stop: the film settles
+  if (changed) { write(); settle = 40 }
+  else if (settle > 0) { settle--; write() }
+}
+
+// ── Score-driven atmosphere ──────────────────────────────────────────────────
+// The score tints the air, it decides nothing: a cool flat grey while the
+// estimate reads high stress, a warmer, brighter ground as it reads restorative.
+
+const ATMO_STRESS = { bg: new THREE.Color('#d6d8dc'), sky: new THREE.Color('#c9d3de'), exposure: 0.95 }
+const ATMO_CALM   = { bg: new THREE.Color('#eee6d8'), sky: new THREE.Color('#f3e6cf'), exposure: 1.12 }
+let atmo = -1
+
+function atmosphereStep(dt) {
+  const goal = Math.min(1, Math.max(0, (props.score ?? 30) / 100))
+  if (atmo === goal) return
+  atmo = atmo < 0 || reduceMotion || Math.abs(goal - atmo) < 1e-3
+    ? goal
+    : atmo + (goal - atmo) * (1 - Math.exp(-3 * dt))
+  scene.background.copy(ATMO_STRESS.bg).lerp(ATMO_CALM.bg, atmo)
+  hemiLight.color.copy(ATMO_STRESS.sky).lerp(ATMO_CALM.sky, atmo)
+  renderer.toneMappingExposure = ATMO_STRESS.exposure + (ATMO_CALM.exposure - ATMO_STRESS.exposure) * atmo
 }
 
 // ── Animation loop ───────────────────────────────────────────────────────────
@@ -766,6 +801,8 @@ function animate() {
   const delta = clock.getDelta()
 
   morphStep(Math.min(delta, 0.1))
+  frameStep(Math.min(delta, 0.1))
+  atmosphereStep(Math.min(delta, 0.1))
 
   if (props.mode === 'walk') {
     const speed = walkSpeed * (moveState.sprint ? sprintMultiplier : 1.0)
@@ -797,6 +834,7 @@ function animate() {
     orbitControls.update()
   }
 
+  updateFabric(fabricU, sunDir, activeCamera)
   renderer.render(scene, activeCamera)
 }
 

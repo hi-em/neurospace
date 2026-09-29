@@ -25,7 +25,7 @@ function updateValue(newValue, ghKey) {
   sliderValues[ghKey] = newValue
 }
 
-// computeData drives the room geometry (geometry/room.js)
+// computeData drives the membrane (geometry/membrane.js)
 const computeData = computed(() => ({ ...sliderValues }))
 
 // ── Plant count (managed by GeometryView drag-and-drop) ─────────────────────
@@ -57,9 +57,9 @@ const SUN_HOUR = 16
 
 // ── Material config ──────────────────────────────────────────────────────────
 const materialConfig = reactive({
-  color: '#C50000',
+  color: '#F4F0E8',
   opacity: 1.0,
-  roughness: 0.1,
+  roughness: 0.62,
   metalness: 0.0,
   pattern: 'solid',
 })
@@ -71,6 +71,7 @@ const isCapturing   = ref(false)
 const vizOpen       = ref(false)
 
 const colorSwatches = [
+  { hex: '#F4F0E8', label: 'Fabric' },
   { hex: '#ffffff', label: 'White' },
   { hex: '#1a1a1a', label: 'Black' },
   { hex: '#C50000', label: 'Red' },
@@ -149,6 +150,7 @@ function scrollToResults() {
         <GeometryView
           ref="geoView"
           :data="computeData"
+          :score="neuroScore"
           :mode="mode"
           :sunHour="SUN_HOUR"
           :showSurroundings="showSurroundings"
