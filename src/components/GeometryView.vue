@@ -1,7 +1,6 @@
 <template>
   <div id="viewport">
     <div id="threejs-container"></div>
-    <div v-if="errorMessage" class="error-overlay">{{ errorMessage }}</div>
 
     <!-- Cut plane slider — only visible in plan view -->
     <div v-if="props.mode === 'plan'" class="cut-plane-overlay">
@@ -24,27 +23,19 @@
 </template>
 
 <script setup>
-import { onMounted, onBeforeUnmount, watch, nextTick, ref, computed } from 'vue'
+import { onMounted, onBeforeUnmount, watch, ref, computed } from 'vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls'
-import { Rhino3dmLoader } from 'three/addons/loaders/3DMLoader.js'
-import { runCompute, loadRhino } from '@/scripts/compute.js'
+import { createRoom, writeRoom, roomParams, UNITS_PER_M } from '@/geometry/room.js'
 
-const loader = new Rhino3dmLoader()
-loader.setLibraryPath('https://cdn.jsdelivr.net/npm/rhino3dm@8.0.0-beta2/')
-
-const props = defineProps(['data', 'path', 'color', 'mode', 'sunHour', 'showSurroundings', 'materialConfig'])
-const emits = defineEmits(['updateMetadata', 'docReady', 'plantCountChanged'])
+const props = defineProps(['data', 'mode', 'sunHour', 'showSurroundings', 'materialConfig'])
+const emits = defineEmits(['plantCountChanged'])
 
 // Three.js objects
 let renderer, perspCamera, orthoCamera, activeCamera
 let scene, orbitControls, container, axesHelper, groundPlane, sunLight
 let loadedObject = null
-let hasLoaded = false
 let surroundingsGroup = null
-
-const isReady = ref(false)
-const errorMessage = ref(null)
 
 // Material presets
 const PATTERN_NONE = 'solid'
@@ -74,7 +65,10 @@ function buildMeshMaterial() {
     clearcoat,
     clearcoatRoughness,
     wireframe: isWireframe,
-    side: THREE.DoubleSide,
+    // Faces point into the room: from outside the near wall and the ceiling
+    // are culled, so the room reads open, yet both still cast the sun's shadow.
+    side: THREE.FrontSide,
+    shadowSide: THREE.DoubleSide,
   })
 }
 
@@ -88,7 +82,7 @@ function applyMaterialConfig() {
 
   const mat = buildMeshMaterial()
   loadedObject.traverse((child) => {
-    if (child.isMesh && child.material) {
+    if (child.isMesh && child.userData.tinted) {
       const hadClip = child.material.clippingPlanes && child.material.clippingPlanes.length > 0
       child.material = mat.clone()
       if (hadClip && cutPlaneEnabled.value) {
@@ -134,7 +128,6 @@ function cleanupGridOverlays() {
 const cutPlaneHeight = ref(10)
 const cutPlaneEnabled = ref(false)
 let cutPlane = null
-let geoWorldHeight = 1 // actual Y extent of the loaded geometry in world units
 
 // Dynamic cut plane max based on ceiling height
 const cutPlaneMax = computed(() => {
@@ -174,7 +167,7 @@ function init() {
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false })
   container = document.getElementById('threejs-container')
   renderer.setSize(container.offsetWidth, container.offsetHeight)
-  renderer.setPixelRatio(window.devicePixelRatio)
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
   renderer.shadowMap.enabled = true
   renderer.shadowMap.type = THREE.PCFSoftShadowMap
   renderer.localClippingEnabled = true
@@ -501,17 +494,6 @@ function applyMode() {
   }
 }
 
-// ── Material color update ────────────────────────────────────────────────────
-
-function updateMaterialColor() {
-  if (!loadedObject) return
-  const hex = parseInt(props.color, 16)
-  loadedObject.traverse((child) => {
-    if (child.isMesh && child.material) {
-      child.material.color.setHex(hex)
-    }
-  })
-}
 // ── Cut plane ────────────────────────────────────────────────────────────────
 
 function applyCutPlane() {
@@ -521,10 +503,7 @@ function applyCutPlane() {
     removeCutPlane()
     return
   }
-  // Map the slider (in design-meters) to actual world-space Y
-  const ceilingH = props.data?.['Height'] ?? 15
-  const worldY = (cutPlaneHeight.value / ceilingH) * geoWorldHeight
-  cutPlane.constant = worldY
+  cutPlane.constant = cutPlaneHeight.value * UNITS_PER_M
   if (!loadedObject) return
   loadedObject.traverse((child) => {
     if (child.isMesh && child.material) {
@@ -732,134 +711,52 @@ function onDrop(e) {
   addPlantAtScreen(sizeKey, e.clientX, e.clientY)
 }
 
-// ── Compute (Grasshopper) ────────────────────────────────────────────────────
+// ── Room (geometry in code, see geometry/room.js) ────────────────────────────
 
-let computeGeneration = 0   // bumped each call; stale results are discarded
-let isComputing = false      // prevents overlapping compute calls
-let pendingData = null       // stores the latest data while a compute is in-flight
+const room = createRoom()
+const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+const MORPH_RATE = 7   // per second: a slider change settles in about half a second
+let shown = null       // the parameter state on screen, easing toward `target`
+let target = null
 
-async function compute() {
-  // If already computing, stash the latest data and bail — it will run after the current one.
-  if (isComputing) {
-    pendingData = JSON.parse(JSON.stringify(props.data))
-    return
+function sunAngle() {
+  return Math.atan2(sunLight.position.z, sunLight.position.x)
+}
+
+function buildRoomMeshes() {
+  const floorMat = new THREE.MeshStandardMaterial({ color: 0xcdbb9f, roughness: 0.75 })
+  loadedObject = new THREE.Group()
+  for (const [geometry, role] of [[room.walls, 'walls'], [room.floor, 'floor'], [room.ceiling, 'ceiling']]) {
+    const mesh = new THREE.Mesh(geometry, role === 'floor' ? floorMat : buildMeshMaterial())
+    mesh.userData.tinted = role !== 'floor'
+    mesh.castShadow = role !== 'floor'
+    mesh.receiveShadow = true
+    loadedObject.add(mesh)
   }
+  scene.add(loadedObject)
+}
 
-  isComputing = true
-  const generation = ++computeGeneration
-  console.log('Running compute #' + generation + '…\ndata sent:', props.data)
-  errorMessage.value = null
-
-  try {
-    const ghData = { ...props.data }
-    const doc = await runCompute(ghData, props.path)
-
-    // Stale? A newer compute was queued → skip this result entirely.
-    if (generation !== computeGeneration) return
-
-    if (doc.metadata) {
-      emits('updateMetadata', doc.metadata)
-    }
-
-    // Remove existing geometry (keep lights, axes, ground, and plants)
-    const plantGroups = plants.map(p => p.group)
-    const toRemove = scene.children.filter(c =>
-      !c.isLight &&
-      c !== axesHelper &&
-      c !== groundPlane &&
-      c !== surroundingsGroup &&
-      !plantGroups.includes(c)
-    )
-    toRemove.forEach(c => scene.remove(c))
-    loadedObject = null
-
-    const buffer = new Uint8Array(doc.toByteArray()).buffer
-    // Emit a copy — loader.parse transfers the original ArrayBuffer to a Worker
-    // which neuters it (byteLength → 0), so the download must use an independent copy.
-    emits('docReady', buffer.slice(0))
-    await new Promise((resolve, reject) => {
-      loader.parse(buffer, function (object) {
-        // Double-check staleness inside the async parse callback too
-        if (generation !== computeGeneration) { resolve(); return }
-
-        let meshMaterial = buildMeshMaterial()
-
-        let edgeMaterial = new THREE.LineBasicMaterial({
-          color: 0x004499,
-          linewidth: 2
-        })
-
-        let hasVisibleGeometry = false
-
-        object.traverse((child) => {
-          if (child.isMesh) {
-            child.material = meshMaterial
-            if (cutPlaneEnabled.value) {
-              child.material.clippingPlanes = [cutPlane]
-              child.material.clipShadows = true
-            }
-            child.castShadow = true
-            child.receiveShadow = true
-            hasVisibleGeometry = true
-          }
-        })
-
-        if (!hasVisibleGeometry) {
-          object.traverse((child) => {
-            if (child.geometry && child.geometry.attributes && child.geometry.attributes.position) {
-              const edges = new THREE.EdgesGeometry(child.geometry)
-              const line = new THREE.LineSegments(edges, edgeMaterial)
-              scene.add(line)
-              hasVisibleGeometry = true
-            }
-          })
-        }
-
-        // Rhino Z-up → Three.js Y-up
-        object.rotation.x = -Math.PI / 2
-        object.updateMatrixWorld(true)
-
-        // Sit the geometry on y = 0 — guard against empty bounding box (no meshes)
-        const box = new THREE.Box3().setFromObject(object)
-        if (box.min.y !== Infinity) {
-          object.position.y -= box.min.y
-        }
-
-        loadedObject = object
-        scene.add(object)
-
-        // Measure actual world-space height for accurate cut-plane mapping
-        const finalBox = new THREE.Box3().setFromObject(object)
-        geoWorldHeight = (finalBox.min.y !== Infinity ? finalBox.max.y - finalBox.min.y : 0) || 1
-        console.log(`[Geometry] height=${geoWorldHeight.toFixed(4)} width=${(finalBox.max.x - finalBox.min.x).toFixed(4)} depth=${(finalBox.max.z - finalBox.min.z).toFixed(4)}`)
-
-        if (!hasLoaded) {
-          applyMode()
-          hasLoaded = true
-        }
-        console.log('Compute #' + generation + ' done')
-        resolve()
-      }, function (error) {
-        console.error('Error parsing geometry:', error)
-        errorMessage.value = 'Geometry parse error: ' + (error?.message || String(error))
-        reject(error)
-      })
-    })
-  } catch (error) {
-    console.error('Compute failed:', error)
-    // The shared Rhino Compute server this was built against is retired, so every
-    // failure down this path now means the same thing. The raw fetch error told a
-    // visitor nothing; this says what actually happened and what still works.
-    errorMessage.value = 'The geometry is gone because the Rhino Compute server behind it '
-      + 'was retired at the end of the course year; the NeuroScore still runs in your browser.'
-  } finally {
-    isComputing = false
-    // If new data arrived while we were computing, run again with the latest values
-    if (pendingData) {
-      pendingData = null
-      compute()
-    }
+function setTarget(data) {
+  target = roomParams(data)
+  if (!shown || reduceMotion) {
+    shown = { ...target }
+    writeRoom(room, shown, sunAngle())
   }
+}
+
+// Ease every parameter toward its slider value and rewrite the same buffers:
+// the room morphs, it is never rebuilt.
+function morphStep(dt) {
+  if (!target || !shown) return
+  const a = 1 - Math.exp(-MORPH_RATE * dt)
+  let changed = false
+  for (const k in target) {
+    const d = target[k] - shown[k]
+    if (d === 0) continue
+    shown[k] = Math.abs(d) < 1e-3 ? target[k] : shown[k] + d * a
+    changed = true
+  }
+  if (changed) writeRoom(room, shown, sunAngle())
 }
 
 // ── Animation loop ───────────────────────────────────────────────────────────
@@ -867,6 +764,8 @@ async function compute() {
 function animate() {
   requestAnimationFrame(animate)
   const delta = clock.getDelta()
+
+  morphStep(Math.min(delta, 0.1))
 
   if (props.mode === 'walk') {
     const speed = walkSpeed * (moveState.sprint ? sprintMultiplier : 1.0)
@@ -934,27 +833,16 @@ onBeforeUnmount(() => {
   }
 })
 
-onMounted(async () => {
+onMounted(() => {
   init()
-  await loadRhino()
-  await nextTick()
-  isReady.value = true
-  // Explicitly trigger the first compute with default parameters.
-  // Relying solely on the watcher can miss this on deployed builds
-  // due to Vue reactivity batching during the async mount.
-  compute()
+  buildRoomMeshes()
+  setTarget(props.data)
+  applyMode()
 })
 
 // ── Watchers ─────────────────────────────────────────────────────────────────
 
-watch(
-  () => props.data,
-  () => {
-    if (!isReady.value) return
-    compute()
-  },
-  { deep: true }
-)
+watch(() => props.data, (data) => setTarget(data), { deep: true })
 
 watch(() => props.mode, (newMode) => {
   applyMode()
@@ -970,8 +858,6 @@ watch(() => props.mode, (newMode) => {
 watch(cutPlaneHeight, () => {
   if (cutPlaneEnabled.value) applyCutPlane()
 })
-
-watch(() => props.color, () => { updateMaterialColor() })
 
 watch(() => props.materialConfig, () => { applyMaterialConfig() }, { deep: true })
 
@@ -1013,22 +899,6 @@ defineExpose({ captureScreenshot, addPlantAtScreen, deleteSelectedPlant, getPlan
   width: 100%;
   min-width: 200px;
   position: inherit;
-}
-
-.error-overlay {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  background: rgba(197, 0, 0, 0.88);
-  color: white;
-  padding: 12px 20px;
-  border-radius: 8px;
-  font-family: 'Roboto Mono', monospace;
-  font-size: 0.9rem;
-  max-width: 80%;
-  text-align: center;
-  z-index: 10;
 }
 
 .cut-plane-overlay {

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed } from 'vue'
 
 import GeometryView    from './components/GeometryView.vue'
 import HeroSection     from './components/HeroSection.vue'
@@ -9,12 +9,9 @@ import ResultsPanel    from './components/ResultsPanel.vue'
 
 import { calculateNeuroScore } from './utils/neuroScore.js'
 
-import def from './assets/neuro-space.gh'
 import './styles/neurospace.css'
 
-const path = def
-
-// ── Slider state (GH keys must match the GH definition exactly) ──────────────
+// ── Slider state (keys kept from the v1 Grasshopper inputs; the score reads them too) ──
 const sliderValues = reactive({
   'Wall Count':              4,
   'Wall Curvature':          0.8,
@@ -28,7 +25,7 @@ function updateValue(newValue, ghKey) {
   sliderValues[ghKey] = newValue
 }
 
-// computeData is sent to GeometryView → Grasshopper
+// computeData drives the room geometry (geometry/room.js)
 const computeData = computed(() => ({ ...sliderValues }))
 
 // ── Plant count (managed by GeometryView drag-and-drop) ─────────────────────
@@ -115,30 +112,6 @@ function captureSnapshot() {
   setTimeout(() => { isCapturing.value = false }, 400)
 }
 
-// ── Loading state (set when params change, cleared when geometry arrives) ────
-const isComputing = ref(false)
-watch(computeData, () => { isComputing.value = true }, { deep: true })
-
-// ── .3dm download ────────────────────────────────────────────────────────────
-const docBuffer = ref(null)
-const has3dm    = computed(() => docBuffer.value !== null)
-
-function receiveDoc(buffer) {
-  docBuffer.value = buffer
-  isComputing.value = false
-}
-
-function download3dm() {
-  if (!docBuffer.value) return
-  const blob = new Blob([docBuffer.value], { type: 'application/octet-stream' })
-  const url  = URL.createObjectURL(blob)
-  const a    = document.createElement('a')
-  a.href     = url
-  a.download = `neurospace-design-score${neuroScore.value}.3dm`
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
 // ── Scroll navigation ─────────────────────────────────────────────────────────
 const toolSection = ref(null)
 
@@ -176,14 +149,10 @@ function scrollToResults() {
         <GeometryView
           ref="geoView"
           :data="computeData"
-          :path="path"
-          :color="'0xFFFFFF'"
           :mode="mode"
           :sunHour="SUN_HOUR"
           :showSurroundings="showSurroundings"
           :materialConfig="materialConfig"
-          @updateMetadata="() => {}"
-          @docReady="receiveDoc"
           @plantCountChanged="onPlantCountChanged"
         />
 
@@ -323,14 +292,6 @@ function scrollToResults() {
         <!-- Shutter flash overlay -->
         <div v-if="isCapturing" class="ns-shutter-overlay"></div>
 
-        <!-- Compute loading overlay -->
-        <Transition name="ns-fade">
-          <div v-if="isComputing" class="ns-compute-overlay">
-            <div class="ns-compute-spinner"></div>
-            <span class="ns-compute-label">Computing geometry…</span>
-          </div>
-        </Transition>
-
         <!-- NeuroScore HUD -->
         <NeuroScoreHUD :score="neuroScore" />
 
@@ -354,9 +315,7 @@ function scrollToResults() {
     <ResultsPanel
       :score="neuroScore"
       :snapshots="snapshots"
-      :has3dm="has3dm"
       :params="scoreData"
-      @download3dm="download3dm"
     />
 
   </div>

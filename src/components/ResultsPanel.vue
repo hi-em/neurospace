@@ -9,7 +9,7 @@
         <h2 class="ns-section-title">Your NeuroScore</h2>
         <p class="ns-section-desc">
           See how each spatial parameter contributes to your design's neurophysiological
-          stress profile. Export your results or download the 3D model.
+          stress profile. Export your results as a PDF report.
           Compare different configurations by capturing your score at each state — use the
           gallery below as a hypothesis log.
         </p>
@@ -283,19 +283,6 @@
           </svg>
           Download Report (PDF)
         </button>
-        <button
-          class="ns-export-btn secondary"
-          @click="$emit('download3dm')"
-          :disabled="!has3dm"
-          :title="has3dm ? 'Download your 3D model' : 'Run the compute first to generate a model'"
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/>
-            <path d="M5 8l3 3 3-3M8 5v6" stroke="currentColor" stroke-width="1.5"
-                  stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-          Download .3dm Model
-        </button>
       </div>
 
       <!-- ── Print-only research notes (hidden on screen) ─── -->
@@ -332,11 +319,9 @@ import {
 const props = defineProps({
   score:     { type: Number, default: 0 },
   snapshots: { type: Array,  default: () => [] },
-  has3dm:    { type: Boolean, default: false },
   params:    { type: Object, default: () => ({}) },
 })
 
-const emit = defineEmits(['download3dm'])
 
 const scoreInfo = computed(() => getScoreLabel(props.score))
 
