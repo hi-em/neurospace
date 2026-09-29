@@ -1,5 +1,5 @@
 <template>
-  <div class="rp">
+  <div ref="rp" class="rp" :style="{ '--fit': fit }">
     <div class="tools">
       <p>{{ pages }} pages · A4 · the renders are made by the same solver as the room</p>
       <button class="pdf" @click="exportPDF" :disabled="busy || !ready"><NsIcon name="export" :size="14" />{{ busy ? 'Preparing…' : 'Download PDF' }}</button>
@@ -223,11 +223,20 @@ const specRows = computed(() => {
 // ── PDF: one A4 page per sheet ────────────────────────────────────────────────
 const p1 = ref(null), p2 = ref(null), p3 = ref(null), p4 = ref(null)
 const busy = ref(false)
+
+// On a phone the A4 sheets are shown whole, scaled to the screen, not reflowed.
+const rp = ref(null), fit = ref(1)
+let ro = null
+onMounted(() => { ro = new ResizeObserver(() => { fit.value = Math.min(1, ((rp.value?.clientWidth ?? 826) - 32) / 794) }); ro.observe(rp.value) })
+onBeforeUnmount(() => ro?.disconnect())
 async function exportPDF() {
   busy.value = true
   try {
     const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
     const sheets = [p1.value, p2.value, p3.value, p4.value].filter(Boolean)
+    const was = fit.value
+    fit.value = 1                                      // rasterise at full size
+    await new Promise(r => requestAnimationFrame(() => r()))
     for (let i = 0; i < sheets.length; i++) {
       const canvas = await html2canvas(sheets[i], { scale: 2, backgroundColor: '#ffffff', useCORS: true })
       const w = 210, h = canvas.height * w / canvas.width
@@ -236,20 +245,21 @@ async function exportPDF() {
       pdf.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', (210 - w * s) / 2, 0, w * s, h * s)
     }
     pdf.save(`neurospace-report-${props.controlScore}-to-${props.variantScore}.pdf`)
+    fit.value = was
   } finally { busy.value = false }
 }
 </script>
 
 <style scoped>
 .rp { padding: var(--ns-s5) 16px; background: var(--ns-sunk); min-height: 100%; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; gap: var(--ns-s5); }
-.tools { width: 794px; max-width: 100%; display: flex; justify-content: space-between; align-items: center; gap: var(--ns-s3); }
+.tools { width: 794px; max-width: 100%; flex-wrap: wrap; display: flex; justify-content: space-between; align-items: center; gap: var(--ns-s3); }
 .tools p { margin: 0; font: var(--ns-t-ui) var(--ns-mono); color: var(--ns-mute); }
 .pdf { display: inline-flex; gap: 6px; align-items: center; height: 34px; border: 0; background: var(--ns-ink); color: #fff; border-radius: var(--ns-r-pill); padding: 0 18px; font: var(--ns-t-ui) var(--ns-mono); cursor: pointer; flex: none; }
 .pdf:disabled { opacity: .5; cursor: default; }
 .pdf:focus-visible { outline: 2px solid var(--ns-red); outline-offset: 2px; }
 
 /* A4 at 96 dpi: 794 × 1123 */
-.page { width: 794px; max-width: 100%; min-height: 1123px; box-sizing: border-box; background: #fff; padding: 40px 48px; box-shadow: var(--ns-e2); display: flex; flex-direction: column; color: var(--ns-ink); }
+.page { width: 794px; zoom: var(--fit, 1); flex: none; min-height: 1123px; box-sizing: border-box; background: #fff; padding: 40px 48px; box-shadow: var(--ns-e2); display: flex; flex-direction: column; color: var(--ns-ink); }
 .ph { display: flex; justify-content: space-between; align-items: baseline; padding-bottom: 10px; border-bottom: 1px solid var(--ns-ink); margin-bottom: 28px; font: var(--ns-t-ui) var(--ns-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ns-ink-2); }
 .mark { font: 700 14px var(--ns-sans); letter-spacing: -.01em; text-transform: none; color: var(--ns-ink); }
 .mark b { color: var(--ns-red); }

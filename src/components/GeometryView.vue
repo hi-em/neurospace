@@ -957,4 +957,12 @@ defineExpose({ captureScreenshot, addPlantAtScreen, deleteSelectedPlant, getPlan
 .scale b { position: absolute; left: 0; top: 0; height: 3px; width: 50%; background: var(--ns-ink); }
 .scale i { position: absolute; top: -15px; transform: translateX(-50%); font: normal 10px var(--ns-mono); color: var(--ns-ink-2); }
 @media (prefers-reduced-motion: reduce) { .fade-enter-active, .fade-leave-active { transition: none; } }
+/* on a phone the band sits under the room, not over it */
+@media (max-width: 900px) {
+  .sheet { top: 40px; bottom: auto; left: 12px !important; }
+  .sheet p { display: none; }
+  .north { top: 12px; right: 12px; }
+  .walk-hint { top: 44px; font-size: 10px; }
+  .walk-btn { bottom: 16px; }
+}
 </style>

@@ -29,6 +29,11 @@ function pick(q) {
   Object.assign(variant, control, q?.start ?? {})
   question.value = q
   card.value = 'exp'
+  // on a phone, bring the experiment up to just under the pinned room and band
+  if (narrow.value) nextTick(() => {
+    const c = document.querySelector('.lab.narrow .card'), d = document.querySelector('.lab.narrow .dock')
+    if (c && d) window.scrollTo({ top: c.offsetTop - d.getBoundingClientRect().bottom + 4, behavior: reduceMotion ? 'auto' : 'smooth' })
+  })
 }
 function saveCustom({ text, keys }) {
   const q = { id: 'u' + Date.now().toString(36), text, keys, start: {}, own: true }
@@ -455,16 +460,26 @@ const research = computed(() => DIMS.map(d => ({
 .src { font: var(--ns-t-ui) var(--ns-mono); color: var(--ns-mute); margin-bottom: 10px !important; }
 @media (prefers-reduced-motion: reduce) { .tag, .delta, .dock { transition: none; } }
 
-/* Phones and narrow windows: brand and tools on top, the room, its band, then the card */
-.lab.narrow { position: static; overflow: visible; min-height: 100vh; display: flex; flex-direction: column; }
+/* Phones and narrow windows: a slim header (brand left, tools right), the room
+   and its band held at the top while you scroll, then the card */
+.lab.narrow { position: relative; overflow: visible; min-height: 100vh; display: flex; flex-direction: column; }
 .lab.narrow .rail { display: contents; }
-.lab.narrow .brand { order: 0; padding: 12px 14px 0; }
-.lab.narrow .docbar { order: 1; position: static; margin: 8px 12px; align-self: flex-start; box-shadow: none; flex-wrap: wrap; }
-.lab.narrow .stage { order: 2; position: sticky; top: 0; height: 52vh; inset: auto; z-index: 4; background: var(--ns-sunk); }
-.lab.narrow .tag { top: 12px; }
-.lab.narrow .dock { order: 3; position: sticky; top: 52vh; left: auto; transform: none; max-width: none; z-index: 4; }
+.lab.narrow .brand { order: 0; padding: 12px 14px 10px; }
+.lab.narrow .brand h1 { line-height: 38px; }
+.lab.narrow .brand p { font-size: 11.5px; max-width: none; }
+.lab.narrow .docbar { position: absolute; top: 10px; right: 10px; padding: 3px; gap: 2px; box-shadow: var(--ns-e1); }
+.lab.narrow .docbar button { height: 30px; min-width: 30px; padding: 0 7px; }
+.lab.narrow .docbar .sep { display: none; }
+.lab.narrow .stage { order: 2; inset: auto; position: sticky; top: 0; height: 44vh; z-index: 4; background: var(--ns-sunk); }
+.lab.narrow .tag { top: 10px; }
+.lab.narrow .dock { order: 3; position: sticky; top: 44vh; left: auto; transform: none; max-width: none; z-index: 4; }
 .lab.narrow .status { display: none; }
-.lab.narrow .band { border-radius: 0; flex-wrap: wrap; white-space: normal; justify-content: center; box-shadow: none; width: 100%; box-sizing: border-box; }
+.lab.narrow .band { border-radius: 0; flex-wrap: wrap; justify-content: center; row-gap: 4px; box-shadow: 0 6px 12px -10px #0003; width: 100%; box-sizing: border-box; padding: 6px 10px; }
+/* the band on a phone: the time of day across the top, the view tools beneath */
+.lab.narrow .grp.sun { flex: 1 1 100%; padding: 0 2px; }
+.lab.narrow .grp.sun .range { flex: 1; width: auto; }
+.lab.narrow .grp.sun + .sep { display: none; }
 .lab.narrow .kbd { display: none; }
 .lab.narrow .card { order: 4; margin: 12px; }
+.lab.narrow .doc { padding: 20px 18px 40px; }
 </style>
