@@ -1,6 +1,14 @@
 <template>
-  <div id="viewport">
-    <div id="threejs-container"></div>
+  <div class="ns-viewport">
+    <div ref="containerEl" class="ns-three" role="img" :aria-label="ariaLabel"></div>
+    <button
+      v-if="props.mode === 'walk' && isTouch && props.interactive !== false"
+      class="ns-walk-btn"
+      @pointerdown.prevent="moveState.forward = true"
+      @pointerup="moveState.forward = false"
+      @pointerleave="moveState.forward = false"
+      aria-label="Hold to walk forward"
+    >Hold to walk</button>
 
     <!-- Cut plane slider — only visible in plan view -->
     <div v-if="props.mode === 'plan'" class="cut-plane-overlay">
@@ -30,8 +38,11 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { createRoom, writeRoom, roomParams, sunVector, UNITS_PER_M } from '@/geometry/membrane.js'
 import { fabricUniforms, makeTranslucent, updateFabric, createRigging, timberTexture, weaveTexture, createShafts } from '@/geometry/look.js'
 
-const props = defineProps(['data', 'score', 'mode', 'sunHour', 'showSurroundings', 'materialConfig'])
-const emits = defineEmits(['plantCountChanged'])
+const props = defineProps(['data', 'score', 'mode', 'sunHour', 'showSurroundings', 'materialConfig', 'interactive', 'label'])
+const emits = defineEmits(['plantCountChanged', 'solved'])
+const containerEl = ref(null)
+const isTouch = window.matchMedia?.('(pointer: coarse)').matches
+const ariaLabel = computed(() => `${props.label || 'Room'}: a membrane form-found from the sliders`)
 
 // Three.js objects
 let renderer, perspCamera, orthoCamera, activeCamera
@@ -148,7 +159,7 @@ let orthoFrustumSize = 100
 
 function init() {
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false })
-  container = document.getElementById('threejs-container')
+  container = containerEl.value
   renderer.setSize(container.offsetWidth, container.offsetHeight)
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
   renderer.shadowMap.enabled = true
@@ -232,19 +243,23 @@ function init() {
   orbitControls.enabled = false // disabled until an orbit mode is selected
 
   // Mouse drag listeners for walk mode look + plant selection
-  renderer.domElement.addEventListener('mousedown', onMouseDown)
-  renderer.domElement.addEventListener('mousemove', onMouseMove)
-  renderer.domElement.addEventListener('mouseup', onMouseUp)
-  renderer.domElement.addEventListener('mouseleave', onMouseUp)
+  renderer.domElement.addEventListener('pointerdown', onMouseDown)
+  renderer.domElement.addEventListener('pointermove', onMouseMove)
+  renderer.domElement.addEventListener('pointerup', onMouseUp)
+  renderer.domElement.addEventListener('pointerleave', onMouseUp)
   renderer.domElement.addEventListener('click', onPlantClick)
 
   // Drop zone for plants
-  renderer.domElement.addEventListener('dragover', onDragOver)
-  renderer.domElement.addEventListener('drop', onDrop)
+  if (props.interactive !== false) {
+    renderer.domElement.addEventListener('dragover', onDragOver)
+    renderer.domElement.addEventListener('drop', onDrop)
+  }
 
-  // Keyboard listeners for WASD + Delete
-  document.addEventListener('keydown', onKeyDown)
-  document.addEventListener('keyup', onKeyUp)
+  // Keyboard listeners for WASD + Delete (only the view you work in listens)
+  if (props.interactive !== false) {
+    document.addEventListener('keydown', onKeyDown)
+    document.addEventListener('keyup', onKeyUp)
+  }
 
   cutPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), cutPlaneHeight.value)
   buildSurroundings()
@@ -668,6 +683,22 @@ function getPlantCount() {
   return plants.length
 }
 
+// Plants follow the count the parent holds. New ones land on golden-angle
+// spots across the floor (tap to place); a dragged plant lands where dropped.
+function syncPlants(n) {
+  while (plants.length > n) scene.remove(plants.pop().group)
+  while (plants.length < n) {
+    const i = plants.length, size = ['medium', 'small', 'large'][i % 3]
+    // near the centre, where the film is highest, so nothing pokes through a low roof
+    const a = i * 2.39996 + 0.4, r = Math.min(0.45 * room.bounds.radius / UNITS_PER_M, 0.9 + 0.8 * Math.sqrt(i)) * UNITS_PER_M
+    const plant = createPottedPlant(size)
+    plant.position.set(Math.cos(a) * r, 0, Math.sin(a) * r)
+    plant.rotation.y = i * 1.7
+    scene.add(plant)
+    plants.push({ group: plant, size })
+  }
+}
+
 // Click to select / deselect a plant
 function onPlantClick(e) {
   if (!renderer) return
@@ -737,8 +768,12 @@ function buildRoomMeshes() {
   scene.add(loadedObject, shafts.mesh)
 }
 
+let lastSolveEmit = 0
 function write(first = false) {
+  const t0 = performance.now()
   writeRoom(room, shown, first ? {} : undefined)
+  const ms = performance.now() - t0
+  if (!first && t0 - lastSolveEmit > 400) { lastSolveEmit = t0; emits('solved', ms) }
   rigging?.update(room)
   shafts?.update(room, sunDir)
   updateFrameGoal()
@@ -748,7 +783,9 @@ function write(first = false) {
 const frameGoal = { size: 0, y: 0 }
 function updateFrameGoal() {
   const b = room.bounds
-  frameGoal.size = props.mode === 'plan' ? b.radius * 1.25 : Math.max(b.radius * 1.3, b.height * 0.88)
+  // fit the width too: in a portrait view the room's radius, not its height, decides
+  const aspect = container ? Math.min(1, container.offsetWidth / Math.max(1, container.offsetHeight)) : 1
+  frameGoal.size = props.mode === 'plan' ? b.radius * 1.25 / aspect : Math.max(b.radius * 1.3 / aspect, b.height * 0.88)
   frameGoal.y = props.mode === 'plan' ? 0 : b.height * 0.38
 }
 function frameStep(dt) {
@@ -852,9 +889,9 @@ function animate() {
 
 // ── Window resize ────────────────────────────────────────────────────────────
 
-window.addEventListener('resize', onWindowResize)
+let resizeObserver = null
 function onWindowResize() {
-  if (!container) return
+  if (!container || !renderer) return
   const width = container.offsetWidth
   const height = container.offsetHeight
 
@@ -862,6 +899,7 @@ function onWindowResize() {
   perspCamera.updateProjectionMatrix()
 
   updateOrthoFrustum(orthoFrustumSize)
+  updateFrameGoal()
 
   renderer.setSize(width, height)
 }
@@ -871,12 +909,12 @@ function onWindowResize() {
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', onKeyDown)
   document.removeEventListener('keyup', onKeyUp)
-  window.removeEventListener('resize', onWindowResize)
+  resizeObserver?.disconnect()
   if (renderer) {
-    renderer.domElement.removeEventListener('mousedown', onMouseDown)
-    renderer.domElement.removeEventListener('mousemove', onMouseMove)
-    renderer.domElement.removeEventListener('mouseup', onMouseUp)
-    renderer.domElement.removeEventListener('mouseleave', onMouseUp)
+    renderer.domElement.removeEventListener('pointerdown', onMouseDown)
+    renderer.domElement.removeEventListener('pointermove', onMouseMove)
+    renderer.domElement.removeEventListener('pointerup', onMouseUp)
+    renderer.domElement.removeEventListener('pointerleave', onMouseUp)
     renderer.domElement.removeEventListener('click', onPlantClick)
     renderer.domElement.removeEventListener('dragover', onDragOver)
     renderer.domElement.removeEventListener('drop', onDrop)
@@ -887,12 +925,15 @@ onMounted(() => {
   init()
   buildRoomMeshes()
   setTarget(props.data)
+  syncPlants(props.data?.['Potted Plants'] ?? 0)
   applyMode()
+  resizeObserver = new ResizeObserver(onWindowResize)
+  resizeObserver.observe(container)
 })
 
 // ── Watchers ─────────────────────────────────────────────────────────────────
 
-watch(() => props.data, (data) => setTarget(data), { deep: true })
+watch(() => props.data, (data) => { setTarget(data); syncPlants(data?.['Potted Plants'] ?? 0) }, { deep: true })
 
 watch(() => props.mode, (newMode) => {
   applyMode()
@@ -937,14 +978,14 @@ defineExpose({ captureScreenshot, addPlantAtScreen, deleteSelectedPlant, getPlan
 </script>
 
 <style scoped>
-#viewport {
+.ns-viewport {
   height: 100%;
   width: 100%;
   min-width: 200px;
   position: relative;
 }
 
-#threejs-container {
+.ns-three {
   height: 100%;
   width: 100%;
   min-width: 200px;
@@ -1013,5 +1054,19 @@ defineExpose({ captureScreenshot, addPlantAtScreen, deleteSelectedPlant, getPlan
   height: 140px;
   cursor: pointer;
   accent-color: #C50000;
+}
+
+.ns-walk-btn {
+  position: absolute;
+  left: 50%;
+  bottom: 1.2rem;
+  transform: translateX(-50%);
+  z-index: 10;
+  padding: 0.8rem 1.4rem;
+  border-radius: 999px;
+  border: 1px solid #111;
+  background: #fffe;
+  font: 600 0.75rem 'Roboto Mono', monospace;
+  touch-action: none;
 }
 </style>

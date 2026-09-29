@@ -1,0 +1,10 @@
+/* NeuroSpace base: type and ground. Components style themselves. */
+@import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap');
+
+html, body { margin: 0; background: #f6f3ee; color: #111; }
+body { font-family: Inter, system-ui, -apple-system, sans-serif; -webkit-font-smoothing: antialiased; }
+*, *::before, *::after { box-sizing: border-box; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
