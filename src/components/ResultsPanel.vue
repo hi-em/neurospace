@@ -295,8 +295,8 @@
         </div>
         <div class="ns-prc-item">
           <p class="ns-prc-label">Greenery</p>
-          <p class="ns-prc-text">Indoor plants reduce cortisol, lower blood pressure, and improve attention restoration. Visual access to vegetation triggers parasympathetic activation and supports cognitive recovery.</p>
-          <p class="ns-prc-source">Valentine, C. — Biophilic Design &amp; Neuroinflammation Pilot Study</p>
+          <p class="ns-prc-text">Indoor plants are associated with slightly lower blood pressure; effects on attention are mixed. Some studies report that seeing vegetation supports recovery from mental fatigue.</p>
+          <p class="ns-prc-source">Han, Ruan &amp; Liao (2022), Effects of Indoor Plants on Human Functions, IJERPH. Not from the work of Valentine.</p>
         </div>
       </div>
 
@@ -461,7 +461,7 @@ function brainRegionOpacity(dimIndex) {
 }
 
 const brainRegions = [
-  { region: 'Prefrontal Cortex', dimension: 'Ceiling Height', effect: 'Cognitive freedom & cortisol regulation' },
+  { region: 'Prefrontal Cortex', dimension: 'Ceiling Height', effect: 'Abstract thinking & sense of confinement' },
   { region: 'Parietal Lobe', dimension: 'Wall Quality', effect: 'Visual stress & spatial processing' },
   { region: 'Visual Cortex', dimension: 'Natural Light', effect: 'Circadian rhythm & eye strain reduction' },
   { region: 'Temporal Lobe', dimension: 'Biophilic Form', effect: 'Neuroinflammation & visual coherence' },

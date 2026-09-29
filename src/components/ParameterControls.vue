@@ -270,8 +270,8 @@ function dismissOnboarding() {
 // ── Greenery (research-backed parameter) ──────────────────────────
 const greeneryInfo = {
   label: 'Greenery',
-  text: 'Indoor plants reduce cortisol, lower blood pressure, and improve attention restoration. Even modest plant presence triggers parasympathetic activation and measurably reduces stress markers in occupants. Studies show that visual access to vegetation decreases mental fatigue and supports cognitive recovery.',
-  source: 'Valentine, C. — Biophilic Design & Neuroinflammation Pilot Study',
+  text: 'Indoor plants are associated with slightly lower blood pressure in a 2022 meta-analysis. Effects on attention and stress markers are mixed across studies. Some studies report that seeing vegetation helps people recover from mental fatigue.',
+  source: 'Han, Ruan & Liao (2022). Effects of Indoor Plants on Human Functions: A Systematic Review with Meta-Analyses. IJERPH. Not from the work of Valentine.',
 }
 
 const plantSizes = [
