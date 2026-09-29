@@ -6,6 +6,7 @@ import LabCard      from './components/LabCard.vue'
 import LabDrawer    from './components/LabDrawer.vue'
 import LabReport    from './components/LabReport.vue'
 import ScoreFlow    from './components/ScoreFlow.vue'
+import ScoreMatrix  from './components/ScoreMatrix.vue'
 import NsIcon       from './components/NsIcon.vue'
 
 import { calculateNeuroScore, getParameterContributions, dimensionMeta, paramInfo } from './utils/neuroScore.js'
@@ -38,6 +39,12 @@ function saveCustom({ text, keys }) {
 }
 function loadCustom() { try { return JSON.parse(localStorage.getItem('ns-questions') || '[]') } catch { return [] } }
 const setParam = (k, v) => { variant[k] = v }
+// Placing plants: pick a size in the card, then click the floor of the variant
+const placing = ref(null)
+function placePlants(size) {
+  placing.value = size
+  if (size && compare.value === 'control') compare.value = 'variant'
+}
 const promote = () => Object.assign(control, variant)
 
 // ── Compare: one room at a time, or both; hold F to flip ─────────────────────
@@ -114,6 +121,7 @@ function logResult() {
     dataUrl: view?.captureScreenshot() ?? '',
     from: controlScore.value, score: variantScore.value, delta: variantScore.value - controlScore.value,
     change: describeChange(control, variant),
+    params: { ...variant }, control: { ...control },
     moved: DIMS.filter(d => cc[d.key] !== cv[d.key]),
   })
 }
@@ -207,7 +215,7 @@ const research = computed(() => DIMS.map(d => ({
         </figure>
         <figure class="view">
           <GeometryView ref="geoVariant" :data="variant" :score="variantScore" :mode="mode" :sun-hour="hour" :material-config="materialConfig" label="Variant"
-            :cut-height="cut" @plant-count-changed="variant['Potted Plants'] = $event" @solved="solveMs = $event" />
+            :cut-height="cut" @plant-count-changed="variant['Potted Plants'] = $event" @solved="solveMs = $event" @sun-hour="hour = $event" :placing="placing" @placing-done="placing = null" />
           <figcaption class="tag dark">Variant · {{ variantScore }}</figcaption>
         </figure>
         <!-- the difference, on the seam between the two rooms -->
@@ -218,7 +226,7 @@ const research = computed(() => DIMS.map(d => ({
       <figure v-else class="view">
         <GeometryView ref="geoMain" :data="shownData" :score="shownScore" :mode="mode" :sun-hour="hour" :material-config="materialConfig"
           :label="shownData === control ? 'Control' : 'Variant'" :inset-left="inset" :cut-height="cut"
-          @plant-count-changed="variant['Potted Plants'] = $event" @solved="solveMs = $event" />
+          @plant-count-changed="variant['Potted Plants'] = $event" @solved="solveMs = $event" @sun-hour="hour = $event" :placing="shownData === variant ? placing : null" @placing-done="placing = null" />
         <figcaption v-if="card === 'exp'" class="tag" :class="{ dark: shownData === variant }" :style="{ left: `calc(50% + ${inset / 2}px)` }">
           {{ shownData === control ? 'Control' : 'Variant' }} · {{ shownScore }}<span v-if="flip"> · held F</span>
         </figcaption>
@@ -234,7 +242,7 @@ const research = computed(() => DIMS.map(d => ({
       <LabCard class="card"
         :state="card" :questions="questions" :question="question" :thumbs="thumbs"
         :control="control" :variant="variant" :control-score="controlScore" :variant-score="variantScore"
-        :log="log" :collapsed="collapsed && !narrow" :collapsible="!narrow"
+        :log="log" :collapsed="collapsed && !narrow" :collapsible="!narrow" :placing="placing" @place="placePlants"
         @pick="pick" @custom="card = 'custom'" @save="saveCustom" @back="card = 'pick'"
         @set="setParam" @log="logResult" @promote="promote" @collapse="setCollapsed" @report="drawer = 'report'">
         <template #foot>
@@ -308,6 +316,9 @@ const research = computed(() => DIMS.map(d => ({
         <h3>How the score is made</h3>
         <ScoreFlow :params="variant" />
         <p>A transparent weighted sum, not an instrument: it estimates, it never measures a body, and it makes no clinical claim. Band width is the most each slider can add; the bars fill with what your variant earns. The weights are public in the repo so they can be argued with.</p>
+        <h3>The model as a matrix</h3>
+        <p>The same sum, read the way a machine-learning layer is read: seven inputs, a weight matrix, five outputs and one score. Hover a cell for its value.</p>
+        <ScoreMatrix mode="weights" :params="variant" />
         <h3>The room</h3>
         <p>One tensioned membrane, form-found in your browser with the force density method (Schek, 1974, written for Frei Otto's Munich Olympic roof). Every node of a cable net sits where its neighbours' pulls balance; with no pressure it is a soap film, with pressure a bubble, inflated only until its crown meets the ring.</p>
         <ul>
@@ -335,7 +346,7 @@ const research = computed(() => DIMS.map(d => ({
     </LabDrawer>
 
     <!-- Report -->
-    <LabDrawer :open="drawer === 'report'" title="Report" wide @close="drawer = null">
+    <LabDrawer :open="drawer === 'report'" title="Report" @close="drawer = null">
       <LabReport :control="control" :variant="variant" :control-score="controlScore" :variant-score="variantScore" :log="log"
         :question="question" :hour="hour" :color="materialConfig.color" />
     </LabDrawer>
@@ -430,7 +441,7 @@ const research = computed(() => DIMS.map(d => ({
 .toast { position: absolute; left: 50%; top: 20px; transform: translateX(-50%); margin: 0; background: var(--ns-ink); color: #fff; font: var(--ns-t-ui) var(--ns-mono); padding: 8px 14px; border-radius: var(--ns-r-pill); z-index: 60; }
 .lab button:focus-visible, .lab input:focus-visible, .lab a:focus-visible { outline: 2px solid var(--ns-red); outline-offset: 2px; }
 
-.doc { padding: var(--ns-s5) 26px 40px; font-size: 14px; line-height: 1.6; color: var(--ns-ink-2); }
+.doc { max-width: 760px; margin: 0 auto; padding: 32px 40px 48px; font-size: 14px; line-height: 1.6; color: var(--ns-ink-2); }
 .doc h3 { font: 700 var(--ns-t-title) var(--ns-sans); margin: 22px 0 6px; display: flex; justify-content: space-between; align-items: center; color: var(--ns-ink); }
 .doc h3 small { font: var(--ns-t-ui) var(--ns-mono); color: var(--ns-mute); }
 .dh { display: inline-flex; gap: 8px; align-items: center; }

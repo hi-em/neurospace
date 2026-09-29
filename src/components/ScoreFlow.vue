@@ -2,33 +2,36 @@
   <div class="flow" @mouseleave="tip = null">
     <svg viewBox="0 0 320 330" role="img" aria-label="How the score is made: seven sliders flow into five dimensions and one score">
       <path v-for="b in bands" :key="b.key" :d="b.d" :style="{ fill: b.color }" fill-opacity=".3"
-        @mousemove="tip = { x: $event.offsetX, y: $event.offsetY, text: b.tip }" />
+        @mousemove="move($event, b.tip)" />
       <g v-for="b in bands" :key="'i' + b.key" :transform="`translate(20,${b.iy})`" :style="{ color: 'var(--ns-ink)' }" v-html="b.icon"></g>
       <g v-for="d in dims" :key="d.key">
         <rect x="186" :y="d.y" width="10" :height="d.h" class="track" />
         <rect x="186" :y="d.y + d.h * (1 - d.earned)" width="10" :height="d.h * d.earned" :style="{ fill: d.color }"
-          @mousemove="tip = { x: $event.offsetX, y: $event.offsetY, text: d.tip }" />
+          @mousemove="move($event, d.tip)" />
         <path :d="d.out" :style="{ fill: d.color }" fill-opacity=".16" />
         <text x="202" :y="d.y + d.h / 2 + 3">{{ d.label }}</text>
       </g>
       <rect x="284" y="90" width="14" height="110" rx="3" class="score" />
       <text x="291" y="216" text-anchor="middle" class="num">{{ total }}</text>
     </svg>
-    <div v-if="tip" class="tip" :style="{ left: tip.x + 12 + 'px', top: tip.y + 12 + 'px' }">{{ tip.text }}</div>
+    <Teleport to="body">
+      <div v-if="tip" class="ns-tip" :class="{ flip: tip.flip }" :style="{ left: tip.x + 'px', top: tip.y + 'px' }">{{ tip.text }}</div>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
 import { ref, computed } from 'vue'
 import { calculateNeuroScore, getParameterContributions, contributionMaxima as MAX } from '../utils/neuroScore.js'
-import { DIMS, PARAMS } from '../utils/lab.js'
+import { DIMS, PARAMS, PARAM_SHARE } from '../utils/lab.js'
 import { svg } from '../utils/icons.js'
 
 // Band width = the most a slider can add (its share of its dimension's
 // weight); the dimension bar fills with what the room has earned.
 const props = defineProps({ params: { type: Object, required: true } })
-const SHARE = { 'Height': 22, 'Wall Curvature': 15, 'Wall Count': 10, 'Potted Plants': 13, 'Opening Count': 8.8, 'Opening Size': 13.2, 'Biophilic Organic Form': 18 }
+const SHARE = PARAM_SHARE
 const tip = ref(null)
+function move(e, text) { const flip = e.clientX > window.innerWidth - 260; tip.value = { x: e.clientX + (flip ? -14 : 14), y: e.clientY + 14, text, flip } }
 const k = 1.9
 const total = computed(() => calculateNeuroScore(props.params))
 
@@ -67,5 +70,4 @@ svg text { font: 10px var(--ns-mono); fill: var(--ns-ink-2); }
 .track { fill: var(--ns-line); }
 .score { fill: var(--ns-ink); }
 .num { font: 700 13px var(--ns-sans) !important; fill: var(--ns-ink) !important; }
-.tip { position: absolute; pointer-events: none; background: var(--ns-ink); color: #fff; font: 10.5px var(--ns-mono); padding: 5px 8px; border-radius: 6px; white-space: nowrap; z-index: 3; }
 </style>

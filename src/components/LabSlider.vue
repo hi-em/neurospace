@@ -9,14 +9,15 @@
     <template v-if="k === 'Potted Plants'">
       <div class="plants" role="group" aria-label="Add a plant">
         <button v-for="s in SIZES" :key="s" class="tile" draggable="true" :disabled="value >= p.max"
-          @dragstart="e => drag(e, s)" @click="$emit('set', k, Math.min(p.max, value + 1))" :aria-label="`Add a ${s} plant`" :title="`Drag a ${s} plant onto the floor, or click to add one`">
+          :class="{ on: placing === s }" :aria-pressed="placing === s"
+          @dragstart="e => drag(e, s)" @click="$emit('place', placing === s ? null : s)" :aria-label="`Place a ${s} plant`" :title="`Click, then click the floor to place ${s} plants; or drag one in`">
           <img v-if="icons[s]" :src="icons[s]" alt="" draggable="false" />
           <span v-else class="ph"></span>
           <span class="nm">{{ s }}</span>
         </button>
         <button class="minus" :disabled="!value" @click="$emit('set', k, value - 1)" aria-label="Remove a plant">−</button>
       </div>
-      <p class="ctl">control {{ control }} · drag onto the floor, or click</p>
+      <p class="ctl">{{ placing ? 'click the floor to place · Esc to finish' : `control ${control} · click a plant, then the floor` }}</p>
     </template>
 
     <template v-else>
@@ -49,8 +50,8 @@ function makeIcons() {
 import { computed, onMounted } from 'vue'
 import NsIcon from './NsIcon.vue'
 import { PARAMS, dimOf, fmt } from '../utils/lab.js'
-const props = defineProps({ k: { type: String, required: true }, value: Number, control: Number, held: Boolean })
-defineEmits(['set'])
+const props = defineProps({ k: { type: String, required: true }, value: Number, control: Number, held: Boolean, placing: { type: String, default: null } })
+defineEmits(['set', 'place'])
 const p = computed(() => PARAMS[props.k])
 const color = computed(() => dimOf(p.value.dim).color)
 const id = computed(() => 'sl-' + props.k.replace(/\s+/g, '-'))
@@ -94,6 +95,7 @@ function drag(e, s) {
 .tile:hover:not(:disabled) { border-color: var(--ns-d-plants); transform: translateY(-1px); box-shadow: var(--ns-e1); }
 .tile:active { cursor: grabbing; }
 .tile:disabled { opacity: .4; cursor: default; }
+.tile.on { border-color: var(--ns-d-plants); box-shadow: inset 0 0 0 1px var(--ns-d-plants), var(--ns-e1); background: #f3f8f2; }
 .tile img, .tile .ph { width: 100%; max-width: 64px; aspect-ratio: 1; object-fit: contain; }
 .tile .ph { border-radius: 8px; background: var(--ns-paper); }
 .nm { font: var(--ns-t-micro) var(--ns-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ns-mute); }

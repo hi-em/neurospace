@@ -5,7 +5,10 @@
 
     <!-- Walk: how to move, shown for a moment -->
     <Transition name="fade">
-      <p v-if="props.mode === 'walk' && walkHint && props.interactive !== false" class="walk-hint" :style="{ left: `calc(50% + ${inset / 2}px)` }">
+      <p v-if="props.placing && props.interactive !== false" class="walk-hint" :style="{ left: `calc(50% + ${inset / 2}px)` }">
+        Click the floor to place a {{ props.placing }} plant · <kbd>Esc</kbd> to finish
+      </p>
+      <p v-else-if="props.mode === 'walk' && walkHint && props.interactive !== false" class="walk-hint" :style="{ left: `calc(50% + ${inset / 2}px)` }">
         <template v-if="isTouch">Drag to look · hold the button to walk</template>
         <template v-else><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk · drag to look · <kbd>Shift</kbd> hurry</template>
       </p>
@@ -39,6 +42,7 @@ import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js'
 import { CSS2DRenderer, CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js'
 import { createRoom, writeRoom, roomParams, sunVector, sectionAt, UNITS_PER_M } from '@/geometry/membrane.js'
 import { PLANT_SIZES, PLANT_ORDER, createPottedPlant, plantTop, plantSpot } from '@/geometry/plant.js'
+import { createFigure } from '@/geometry/figure.js'
 import { fabricUniforms, makeTranslucent, updateFabric, createRigging, timberTexture, weaveTexture, createShafts } from '@/geometry/look.js'
 
 const props = defineProps({
@@ -47,8 +51,9 @@ const props = defineProps({
   insetLeft: { type: Number, default: 0 },     // px of this view under the card: the room centres in the rest
   cutHeight: { type: Number, default: 1 },     // plan cut, metres
   maxPlants: { type: Number, default: 5 },
+  placing: { type: String, default: null },     // a plant size while placing: click the floor to set one down
 })
-const emits = defineEmits(['plantCountChanged', 'solved'])
+const emits = defineEmits(['plantCountChanged', 'solved', 'sunHour', 'placingDone'])
 const containerEl = ref(null)
 const labelsEl = ref(null)
 const isTouch = window.matchMedia?.('(pointer: coarse)').matches
@@ -143,7 +148,7 @@ function init() {
   labelRenderer.setSize(container.offsetWidth, container.offsetHeight)
 
   const aspect = container.offsetWidth / container.offsetHeight
-  perspCamera = new THREE.PerspectiveCamera(66, aspect, 0.05, 5000)
+  perspCamera = new THREE.PerspectiveCamera(66, aspect, 0.1, 3000)
   perspCamera.position.set(0, EYE, 30)
   perspCamera.rotation.order = 'YXZ'
   orthoCamera = new THREE.OrthographicCamera(-orthoFrustumSize * aspect, orthoFrustumSize * aspect, orthoFrustumSize, -orthoFrustumSize, 0.01, 50000)
@@ -178,6 +183,7 @@ function init() {
 
   groundPlane = new THREE.Mesh(new THREE.PlaneGeometry(2000, 2000), new THREE.ShadowMaterial({ opacity: 0.25 }))
   groundPlane.rotation.x = -Math.PI / 2
+  groundPlane.position.y = -0.04 * U          // just under the floor: coplanar, the two would z-fight
   groundPlane.receiveShadow = true
   scene.add(groundPlane)
 
@@ -191,6 +197,7 @@ function init() {
   renderer.domElement.addEventListener('pointerup', onMouseUp)
   renderer.domElement.addEventListener('pointerleave', onMouseUp)
   renderer.domElement.addEventListener('click', onPlantClick)
+  renderer.domElement.addEventListener('pointermove', onPlaceMove)
   if (props.interactive !== false) {
     container.addEventListener('dragover', onDragOver)
     container.addEventListener('dragleave', onDragLeave)
@@ -227,6 +234,7 @@ function onMouseUp() { isDragging = false }
 
 function onKeyDown(e) {
   if (e.target.closest?.('input, textarea, select')) return
+  if (e.code === 'Escape' && props.placing) { emits('placingDone'); return }
   if ((e.code === 'Delete' || e.code === 'Backspace') && selectedPlant) {
     e.preventDefault()
     deleteSelectedPlant()
@@ -438,6 +446,29 @@ function createPlan() {
   const label = (text, cls) => { const d = document.createElement('div'); d.className = 'pl ' + (cls || ''); d.textContent = text; const o = new CSS2DObject(d); group.add(o); return o }
   const hourLabels = [7, 9, 11, 13, 15, 17].map(h => ({ h, o: label(String(h).padStart(2, '0'), 'hour') }))
   const sunDot = label('', 'sun')
+  // the sun is a handle: drag it along its path to set the hour
+  sunDot.element.title = 'Drag the sun along its path'
+  const drag = e => {
+    const p = screenToGround(e.clientX, e.clientY)
+    if (!p) return
+    const l = Math.hypot(p.x, p.z) || 1
+    let best = props.sunHour ?? 15, bd = -2
+    for (let h = 6.5; h <= 17.5; h += 0.05) { const [x, z] = ground(h, 1); const d = (x * p.x + z * p.z) / l; if (d > bd) { bd = d; best = h } }
+    emits('sunHour', Math.round(best * 20) / 20)
+  }
+  const release = () => {
+    window.removeEventListener('pointermove', drag)
+    window.removeEventListener('pointerup', release)
+    orbitControls.enabled = true
+    sunDot.element.classList.remove('held')
+  }
+  sunDot.element.addEventListener('pointerdown', e => {
+    e.preventDefault(); e.stopPropagation()
+    orbitControls.enabled = false
+    sunDot.element.classList.add('held')
+    window.addEventListener('pointermove', drag)
+    window.addEventListener('pointerup', release)
+  })
   const archLabels = []
   const sv = new THREE.Vector3()
   const ground = (h, r) => { sunVector(h, undefined, sv); const l = Math.hypot(sv.x, sv.z) || 1; return [sv.x / l * r, sv.z / l * r] }
@@ -579,8 +610,35 @@ function syncPlants(n) {
   fitPlants()
 }
 
+// ── Placing: a ghost plant rides the cursor over the floor; a click plants it ─
+let ghostPlant = null
+function setPlacing(size) {
+  if (ghostPlant) { scene.remove(ghostPlant); ghostPlant = null }
+  renderer.domElement.style.cursor = size ? 'crosshair' : ''
+  ghost(!!size)
+  if (!size) return
+  ghostPlant = createPottedPlant(size)
+  ghostPlant.traverse(c => { if (c.isMesh) { c.material = c.material.clone(); c.material.transparent = true; c.material.opacity = 0.55; c.castShadow = false } })
+  ghostPlant.visible = false
+  scene.add(ghostPlant)
+}
+function onPlaceMove(e) {
+  if (!ghostPlant) return
+  const p = screenToGround(e.clientX, e.clientY)
+  if (!p) { ghostPlant.visible = false; return }
+  const film = filmAbove(p.x, p.z)
+  ghostPlant.visible = true
+  ghostPlant.position.set(p.x, 0, p.z)
+  ghostPlant.scale.setScalar(Math.max(0.35, Math.min(1, (Number.isFinite(film) ? film - 0.15 * U : Infinity) / plantTop(props.placing))))
+}
+
 function onPlantClick(e) {
   if (!renderer || props.mode === 'walk') return
+  if (props.placing) {
+    addPlantAtScreen(props.placing, e.clientX, e.clientY)
+    if (plants.length >= props.maxPlants) emits('placingDone')
+    return
+  }
   const rect = renderer.domElement.getBoundingClientRect()
   mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
   mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
@@ -601,6 +659,7 @@ function onPlantClick(e) {
 let ghostT = 0
 function ghost(on) {
   clearTimeout(ghostT)
+  if (!on && props.placing) return
   if (!fabricMat || fabricMat.transparent === on) return
   fabricMat.transparent = on
   fabricMat.opacity = on ? 0.25 : (props.materialConfig?.opacity ?? 1)
@@ -635,6 +694,7 @@ let target = null
 let rigging = null
 let shafts = null
 let netLines = null
+let figure = null
 let settle = 0
 
 function buildRoomMeshes() {
@@ -648,7 +708,8 @@ function buildRoomMeshes() {
   netLines.visible = props.materialConfig?.pattern === 'grid'
   rigging = createRigging(U)
   shafts = createShafts(U)
-  loadedObject.add(membraneMesh, floor, netLines, rigging.group)
+  figure = createFigure()
+  loadedObject.add(membraneMesh, floor, netLines, rigging.group, figure.group)
   scene.add(loadedObject, shafts.mesh)
   plan = createPlan()
 }
@@ -660,6 +721,7 @@ function write(first = false) {
   const ms = performance.now() - t0
   if (!first && t0 - lastSolveEmit > 400) { lastSolveEmit = t0; emits('solved', ms) }
   rigging?.update(room)
+  figure?.update(room)
   shafts?.update(room, sunDir)
   if (plan && props.mode === 'plan') { plan.layout(); if (plan.poche.visible) plan.section() }
   updateFrameGoal()
@@ -841,6 +903,7 @@ watch(() => props.cutHeight, () => applyCut())
 watch(() => props.data?.['Height'], () => applyCut())
 watch(() => props.materialConfig, () => { applyMaterialConfig() }, { deep: true })
 watch(() => props.sunHour, h => { updateSunPosition(h) })
+watch(() => props.placing, size => setPlacing(size))
 
 // ── Screenshot capture ────────────────────────────────────────────
 
@@ -875,7 +938,9 @@ defineExpose({ captureScreenshot, addPlantAtScreen, deleteSelectedPlant, getPlan
 .ns-labels :deep(.pl) { font: 500 10px var(--ns-mono); letter-spacing: .08em; color: var(--ns-ink-2); white-space: nowrap; }
 .ns-labels :deep(.pl.hour) { color: var(--ns-sun); }
 .ns-labels :deep(.pl.arch) { background: var(--ns-surface); border: 1px solid var(--ns-line); border-radius: var(--ns-r-pill); padding: 2px 7px; color: var(--ns-ink); }
-.ns-labels :deep(.pl.sun) { width: 14px; height: 14px; border-radius: 50%; background: var(--ns-sun); box-shadow: 0 0 0 4px #b8800f33; }
+.ns-labels :deep(.pl.sun) { width: 16px; height: 16px; border-radius: 50%; background: var(--ns-sun); box-shadow: 0 0 0 5px #b8800f33; pointer-events: auto; cursor: grab; touch-action: none; transition: box-shadow var(--ns-fast); }
+.ns-labels :deep(.pl.sun:hover), .ns-labels :deep(.pl.sun.held) { box-shadow: 0 0 0 9px #b8800f40; }
+.ns-labels :deep(.pl.sun.held) { cursor: grabbing; }
 
 .walk-hint { position: absolute; top: 118px; transform: translateX(-50%); margin: 0; display: flex; gap: 4px; align-items: center; pointer-events: none;
   font: var(--ns-t-ui) var(--ns-mono); color: var(--ns-ink); background: #fbfaf7e6; border: 1px solid var(--ns-line); border-radius: var(--ns-r-pill); padding: 6px 12px; box-shadow: var(--ns-e1); white-space: nowrap; }

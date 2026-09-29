@@ -99,13 +99,17 @@
       <p class="fine">Informed by the work of Dr. Cleo Valentine and the studies her review draws on: Valentine (2024, Frontiers review); Valentine et al. (2024, Buildings pilot); Vartanian et al. (2013, 2015); Meyers-Levy &amp; Zhu (2007); Fich et al. (2014); Kim et al. (2021). Plants: Han, Ruan &amp; Liao (2022). v1 ran as a Grasshopper definition on Rhino Compute; this version was rebuilt in code from the rules. github.com/hi-em/neurospace</p>
     </article>
 
-    <!-- 4 · Ledger -->
-    <article v-if="log.length" ref="p4" class="page">
+    <!-- 4 · Matrix and ledger -->
+    <article ref="p4" class="page">
       <header class="ph">
         <span class="mark">Neuro<b>Space</b></span>
-        <span>Ledger · {{ log.length }} logged</span>
+        <span>Experiment matrix{{ log.length ? ` · ${log.length} logged` : '' }}</span>
         <span>4 / {{ pages }}</span>
       </header>
+      <p class="lead">Every room in this session as one row, every dimension as a column: the share of its points each room earns. Read down a column to see what a change did.</p>
+      <ScoreMatrix mode="experiments" :rooms="rooms" />
+      <template v-if="log.length">
+      <h2>Ledger</h2>
       <table class="ledger">
         <thead><tr><th>#</th><th>Room</th><th>Change</th><th>Score</th><th>Δ</th><th>Moved</th></tr></thead>
         <tbody>
@@ -121,6 +125,8 @@
           </tr>
         </tbody>
       </table>
+      </template>
+      <p v-else class="fine">Log a result from the card to add rows: each experiment you log joins this matrix and gets a line in the ledger.</p>
     </article>
   </div>
 </template>
@@ -132,6 +138,7 @@ import { jsPDF } from 'jspdf'
 import NsIcon from './NsIcon.vue'
 import PetalRose from './PetalRose.vue'
 import ScoreFlow from './ScoreFlow.vue'
+import ScoreMatrix from './ScoreMatrix.vue'
 import { dimensionMeta, getParameterContributions, contributionMaxima, getScoreLabel } from '../utils/neuroScore.js'
 import { DIMS, PARAMS, PARAM_KEYS, dimOf, fmt, describeChange } from '../utils/lab.js'
 import { renderThumb, specsFor } from '../geometry/thumbs.js'
@@ -147,7 +154,12 @@ const props = defineProps({
   color: { type: String, default: '#f4f0e8' },
 })
 const date = new Date().toISOString().slice(0, 10)
-const pages = computed(() => props.log.length ? 4 : 3)
+const pages = 4
+const rooms = computed(() => [
+  { name: 'Control', note: 'the reference', img: img.cIso, params: props.control },
+  { name: 'Variant', note: change.value, img: img.vIso, params: props.variant },
+  ...props.log.filter(e => e.params).map((e, i) => ({ name: `Exp ${String(i + 1).padStart(2, '0')}`, note: e.change, img: e.dataUrl, params: e.params })),
+])
 const delta = computed(() => props.variantScore - props.controlScore)
 const signed = computed(() => (delta.value > 0 ? '+' : '') + delta.value)
 const tone = computed(() => delta.value > 0 ? 'up' : delta.value < 0 ? 'dn' : '')
@@ -229,7 +241,7 @@ async function exportPDF() {
 </script>
 
 <style scoped>
-.rp { padding: var(--ns-s5); display: flex; flex-direction: column; align-items: center; gap: var(--ns-s5); }
+.rp { padding: var(--ns-s5) 16px; background: var(--ns-sunk); min-height: 100%; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; gap: var(--ns-s5); }
 .tools { width: 794px; max-width: 100%; display: flex; justify-content: space-between; align-items: center; gap: var(--ns-s3); }
 .tools p { margin: 0; font: var(--ns-t-ui) var(--ns-mono); color: var(--ns-mute); }
 .pdf { display: inline-flex; gap: 6px; align-items: center; height: 34px; border: 0; background: var(--ns-ink); color: #fff; border-radius: var(--ns-r-pill); padding: 0 18px; font: var(--ns-t-ui) var(--ns-mono); cursor: pointer; flex: none; }
@@ -283,6 +295,7 @@ figcaption { margin-top: 6px; font: var(--ns-t-micro) var(--ns-mono); letter-spa
 .pn { display: inline-flex; gap: 6px; align-items: center; }
 .fine { margin: 10px 0 0; font-size: 11px; line-height: 1.55; color: var(--ns-mute); }
 
+.lead { margin: 0 0 12px; font-size: 13px; line-height: 1.55; color: var(--ns-ink-2); }
 .method { display: grid; grid-template-columns: 1fr 300px; gap: 28px; align-items: start; }
 .method h2:first-child { margin-top: 0; }
 .method p { font-size: 13px; line-height: 1.6; color: var(--ns-ink-2); margin: 0 0 10px; }

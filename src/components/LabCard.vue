@@ -69,13 +69,13 @@
 
           <div class="step">
             <p class="n">02 · {{ question ? 'Change one thing' : 'Change anything' }}</p>
-            <LabSlider v-for="k in mainKeys" :key="k" :k="k" :value="variant[k]" :control="control[k]" @set="(key, v) => $emit('set', key, v)" />
+            <LabSlider v-for="k in mainKeys" :key="k" :k="k" :value="variant[k]" :control="control[k]" :placing="placing" @place="$emit('place', $event)" @set="(key, v) => $emit('set', key, v)" />
             <template v-if="question">
               <button class="link more" :aria-expanded="showAll" @click="showAll = !showAll">
                 {{ showAll ? 'Hide the others' : `+ ${otherKeys.length} others, held at the control` }}
               </button>
               <div v-if="showAll" class="others">
-                <LabSlider v-for="k in otherKeys" :key="k" :k="k" :value="variant[k]" :control="control[k]" :held="variant[k] === control[k]" @set="(key, v) => $emit('set', key, v)" />
+                <LabSlider v-for="k in otherKeys" :key="k" :k="k" :value="variant[k]" :control="control[k]" :held="variant[k] === control[k]" :placing="placing" @place="$emit('place', $event)" @set="(key, v) => $emit('set', key, v)" />
               </div>
             </template>
           </div>
@@ -133,8 +133,9 @@ const props = defineProps({
   log: { type: Array, default: () => [] },
   collapsed: Boolean,
   collapsible: { type: Boolean, default: true },
+  placing: { type: String, default: null },
 })
-defineEmits(['pick', 'custom', 'save', 'back', 'set', 'log', 'promote', 'collapse', 'report'])
+defineEmits(['pick', 'custom', 'save', 'back', 'set', 'log', 'promote', 'collapse', 'report', 'place'])
 
 const dimColor = k => dimOf(PARAMS[k].dim).color
 const delta = computed(() => props.variantScore - props.controlScore)
@@ -161,9 +162,7 @@ watch(() => props.state, s => { if (s === 'custom') { draft.value = ''; picks.va
 .head h2 { margin: 0; flex: 1; min-width: 0; font: 700 var(--ns-t-title) var(--ns-sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .icon { display: inline-grid; place-items: center; width: 30px; height: 30px; border: 1px solid transparent; border-radius: var(--ns-r-control); background: none; cursor: pointer; color: var(--ns-ink-2); }
 .icon:hover { border-color: var(--ns-line); background: #fff; }
-.body { overflow-y: auto; min-height: 0; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--ns-line-strong) transparent; }
-.body::-webkit-scrollbar { width: 8px; }
-.body::-webkit-scrollbar-thumb { background: var(--ns-line-strong); border-radius: 4px; border: 2px solid var(--ns-surface); }
+.body { overflow-y: auto; min-height: 0; overscroll-behavior: contain; }
 .foot { padding: 9px var(--ns-s4); border-top: 1px solid var(--ns-line); font: var(--ns-t-micro) var(--ns-mono); color: var(--ns-mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .foot:empty { display: none; }
 

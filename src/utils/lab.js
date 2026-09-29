@@ -15,6 +15,10 @@ export const PARAMS = {
 }
 export const PARAM_KEYS = Object.keys(PARAMS)
 
+// The most each slider can add to the score, in points (its share of its
+// dimension's weight). Read by the flow diagram and the weight matrix.
+export const PARAM_SHARE = { 'Height': 22, 'Wall Curvature': 15, 'Wall Count': 10, 'Potted Plants': 13, 'Opening Count': 8.8, 'Opening Size': 13.2, 'Biophilic Organic Form': 18 }
+
 // Presentation order is the palette's validated order (see tokens.css).
 export const DIMS = [
   { key: 'Ceiling Height', label: 'Ceiling',  color: 'var(--ns-d-ceiling)', token: '--ns-d-ceiling', icon: 'ceiling', region: 'Prefrontal cortex' },

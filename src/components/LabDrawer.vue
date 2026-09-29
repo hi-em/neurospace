@@ -1,7 +1,7 @@
 <template>
   <Transition name="drawer">
     <div v-if="open" class="dr-scrim" @click.self="$emit('close')">
-      <aside class="dr" :class="{ wide }" role="dialog" aria-modal="true" :aria-label="title" ref="panel" tabindex="-1">
+      <aside class="dr" role="dialog" aria-modal="true" :aria-label="title" ref="panel" tabindex="-1">
         <header class="dr-head">
           <h2>{{ title }}</h2>
           <button class="dr-close" @click="$emit('close')" aria-label="Close">×</button>
@@ -27,8 +27,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey))
 
 <style scoped>
 .dr-scrim { position: fixed; inset: 0; background: #1111; z-index: 50; display: flex; justify-content: flex-end; }
-.dr { width: min(760px, 100%); height: 100%; background: var(--ns-surface); box-shadow: -20px 0 60px #0002; display: flex; flex-direction: column; outline: none; }
-.dr.wide { width: min(1080px, 100%); background: var(--ns-sunk); }
+.dr { width: min(900px, 100%); height: 100%; background: var(--ns-surface); box-shadow: -20px 0 60px #0002; display: flex; flex-direction: column; outline: none; }
 .dr-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; border-bottom: 1px solid var(--ns-line); background: var(--ns-surface); }
 .dr-head h2 { margin: 0; font: 700 var(--ns-t-title) var(--ns-sans); }
 .dr-close { border: 0; background: none; font-size: 26px; line-height: 1; cursor: pointer; padding: 0 6px; }

@@ -147,9 +147,10 @@ export function createShafts(units, maxCols = 257, ringPts = 64) {
   g.setAttribute('fade', new THREE.BufferAttribute(new Float32Array(maxV), 1).setUsage(THREE.DynamicDrawUsage))
   g.setIndex(new THREE.BufferAttribute(new Uint32Array(maxV * 3), 1).setUsage(THREE.DynamicDrawUsage))
   const mat = new THREE.ShaderMaterial({
-    uniforms: { uColor: { value: new THREE.Color(1.0, 0.9, 0.72) }, uOpacity: { value: 0.1 } },
-    vertexShader: 'attribute float fade; varying float vFade; void main(){ vFade = fade; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-    fragmentShader: 'uniform vec3 uColor; uniform float uOpacity; varying float vFade; void main(){ float a = uOpacity * pow(1.0 - vFade, 1.6); gl_FragColor = vec4(uColor * a, a); }',
+    uniforms: { uColor: { value: new THREE.Color(1.0, 0.9, 0.72) }, uOpacity: { value: 0.1 }, uNear: { value: 1.2 * units } },
+    // a sheet close to the eye fades out: walking through a shaft must not wash the whole view
+    vertexShader: 'attribute float fade; varying float vFade; varying float vDepth; void main(){ vFade = fade; vec4 mv = modelViewMatrix * vec4(position, 1.0); vDepth = -mv.z; gl_Position = projectionMatrix * mv; }',
+    fragmentShader: 'uniform vec3 uColor; uniform float uOpacity; uniform float uNear; varying float vFade; varying float vDepth; void main(){ float a = uOpacity * pow(1.0 - vFade, 1.6) * smoothstep(uNear, uNear * 3.0, vDepth); gl_FragColor = vec4(uColor * a, a); }',
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
   })
   const mesh = new THREE.Mesh(g, mat)
