@@ -1,4 +1,5 @@
 /* NeuroSpace base: type and ground. Components style themselves. */
+@import './tokens.css';
 @import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap');
 
 html, body { margin: 0; background: #f6f3ee; color: #111; }

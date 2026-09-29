@@ -1,0 +1,56 @@
+/*
+ * NeuroSpace design tokens. Every colour, size, radius, shadow and duration
+ * in the app comes from here; components never hard-code them.
+ *
+ * Language: a quiet architectural lab. Warm paper ground, ink text, one red
+ * for the brand and for "worse", one green for "better", and five data
+ * colours that always mean the same five dimensions.
+ */
+:root {
+  /* Brand + meaning */
+  --ns-red: #c50000;         /* brand mark, primary emphasis, a worse estimate */
+  --ns-green: #2d6a4f;       /* a better estimate */
+  --ns-sun: #c98a2e;         /* time of day, daylight */
+
+  /* Warm neutrals: ground → surface → sunk, lines, ink */
+  --ns-paper: #f6f3ee;       /* page ground */
+  --ns-surface: #fbfaf7;     /* cards, bands, drawers */
+  --ns-sunk: #ece7df;        /* the stage behind the room */
+  --ns-line: #e3ded6;        /* hairlines */
+  --ns-line-strong: #cfc8bd; /* control marks, dashed chips */
+  --ns-ink: #111111;         /* text, primary buttons */
+  --ns-ink-2: #3a3632;       /* body text on surfaces */
+  --ns-mute: #6f6a63;        /* labels, captions (AA on paper and surface) */
+
+  /* Data: one colour per score dimension, everywhere ("Earth", chosen
+     2026-09-29). Validated as a categorical ring on --ns-surface with the
+     dataviz validator: adjacent and wrap-around pairs clear colour-blind
+     (ΔE 11.2) and normal-vision (ΔE 17.4) separation, and all five clear
+     3:1 contrast, so marks read even before their labels.
+     Presentation order: ceiling · walls · plants · daylight · form. */
+  --ns-d-ceiling: #4f78bd;  /* slate blue */
+  --ns-d-walls: #995436;    /* terracotta */
+  --ns-d-plants: #10a17f;   /* jade */
+  --ns-d-light: #b4801c;    /* ochre: the sun */
+  --ns-d-form: #a64c62;     /* rose */
+
+  /* Type: Inter to read, Roboto Mono for labels, numbers and data */
+  --ns-sans: Inter, system-ui, -apple-system, sans-serif;
+  --ns-mono: 'Roboto Mono', ui-monospace, monospace;
+  --ns-t-micro: 10px;   /* uppercase mono labels, tracking .14em */
+  --ns-t-ui: 11px;      /* mono controls, captions */
+  --ns-t-body: 13px;    /* reading text */
+  --ns-t-title: 15px;   /* card titles */
+  --ns-t-section: 20px; /* drawer sections */
+  --ns-t-score: 40px;   /* the variant's score */
+  --ns-t-hero: 64px;    /* the one big number on first open */
+  --ns-lh: 1.45;
+
+  /* Space (4-pt), radius, elevation, motion */
+  --ns-s1: 4px; --ns-s2: 8px; --ns-s3: 12px; --ns-s4: 16px; --ns-s5: 24px; --ns-s6: 32px;
+  --ns-r-control: 8px; --ns-r-card: 14px; --ns-r-pill: 999px;
+  --ns-e1: 0 1px 2px #0000000d;
+  --ns-e2: 0 10px 30px #0000001a;   /* floating cards and bands */
+  --ns-e3: 0 20px 60px #00000033;   /* drawers */
+  --ns-fast: 150ms; --ns-slow: 250ms; --ns-ease: cubic-bezier(.2, .7, .2, 1);
+}

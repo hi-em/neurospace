@@ -35,10 +35,11 @@ import { onMounted, onBeforeUnmount, watch, ref, computed } from 'vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
+import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js'
 import { createRoom, writeRoom, roomParams, sunVector, UNITS_PER_M } from '@/geometry/membrane.js'
 import { fabricUniforms, makeTranslucent, updateFabric, createRigging, timberTexture, weaveTexture, createShafts } from '@/geometry/look.js'
 
-const props = defineProps(['data', 'score', 'mode', 'sunHour', 'showSurroundings', 'materialConfig', 'interactive', 'label'])
+const props = defineProps(['data', 'score', 'mode', 'sunHour', 'materialConfig', 'interactive', 'label'])
 const emits = defineEmits(['plantCountChanged', 'solved'])
 const containerEl = ref(null)
 const isTouch = window.matchMedia?.('(pointer: coarse)').matches
@@ -49,7 +50,6 @@ let renderer, perspCamera, orthoCamera, activeCamera
 let scene, orbitControls, container, axesHelper, groundPlane, sunLight, hemiLight
 const isPhone = window.matchMedia?.('(max-width: 768px), (pointer: coarse)').matches
 let loadedObject = null
-let surroundingsGroup = null
 
 // Material presets
 const PATTERN_NONE = 'solid'
@@ -262,7 +262,6 @@ function init() {
   }
 
   cutPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), cutPlaneHeight.value)
-  buildSurroundings()
   updateSunPosition(props.sunHour ?? 12)
   applyMode()
   animate()
@@ -421,65 +420,6 @@ function updateSunPosition(hour) {
   sunLight.color.setRGB(1.0, 0.95 - 0.2 * low, 0.86 - 0.35 * low)
   sunLight.intensity = 1.6 + 1.6 * (1 - low)
   if (shafts && shown) shafts.update(room, sunDir)
-}
-
-// ── Surroundings ─────────────────────────────────────────────────────────────
-
-function buildSurroundings() {
-  surroundingsGroup = new THREE.Group()
-
-  const SPACING = 210   // block centre spacing
-  const ROAD_W = 18     // road width
-  const RANGE = 2       // ±2 → 5×5 grid
-  const GRID_SIZE = (RANGE * 2 + 1) * SPACING   // 1050 — finite square
-
-  // Finite ground plane — clean square, no fog
-  const groundMat = new THREE.MeshStandardMaterial({ color: 0xe4dccf, roughness: 0.95, metalness: 0 })
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(GRID_SIZE, GRID_SIZE), groundMat)
-  ground.rotation.x = -Math.PI / 2
-  ground.position.y = -0.02
-  ground.receiveShadow = true
-  surroundingsGroup.add(ground)
-
-  // Roads — span only the grid, between block centres
-  const roadMat = new THREE.MeshStandardMaterial({ color: 0xd3c9ba, roughness: 0.9, metalness: 0 })
-  for (let g = -RANGE; g < RANGE; g++) {
-    const pos = (g + 0.5) * SPACING
-    const ns = new THREE.Mesh(new THREE.PlaneGeometry(ROAD_W, GRID_SIZE), roadMat)
-    ns.rotation.x = -Math.PI / 2
-    ns.position.set(pos, 0.01, 0)
-    surroundingsGroup.add(ns)
-    const ew = new THREE.Mesh(new THREE.PlaneGeometry(GRID_SIZE, ROAD_W), roadMat)
-    ew.rotation.x = -Math.PI / 2
-    ew.position.set(0, 0.01, pos)
-    surroundingsGroup.add(ew)
-  }
-
-  // Buildings — sparse: skip centre block + ~45% of others left empty
-  const buildingMat = new THREE.MeshStandardMaterial({ color: 0xebe5dc, roughness: 0.85, metalness: 0 })
-  // seeded, so the context is the same block on every visit
-  let seed = 20260929
-  const random = () => ((seed = (seed * 16807) % 2147483647) / 2147483647)
-  for (let gx = -RANGE; gx <= RANGE; gx++) {
-    for (let gz = -RANGE; gz <= RANGE; gz++) {
-      if (gx === 0 && gz === 0) continue      // neurospace block
-      if (random() < 0.45) continue       // empty plot
-      const x = gx * SPACING
-      const z = gz * SPACING
-      const h = 30 + random() * 120
-      const w = 100 + random() * 70
-      const d = 100 + random() * 70
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), buildingMat)
-      mesh.position.set(x, h / 2, z)
-      mesh.castShadow = false
-      mesh.receiveShadow = true
-      surroundingsGroup.add(mesh)
-    }
-  }
-
-  scene.fog = null
-  scene.add(surroundingsGroup)
-  surroundingsGroup.visible = props.showSurroundings ?? true
 }
 
 // ── Mode application ─────────────────────────────────────────────────────────
@@ -960,10 +900,6 @@ watch(() => props.data?.['Height'], () => {
   if (cutPlaneEnabled.value) applyCutPlane()
 })
 
-watch(() => props.showSurroundings, (val) => {
-  if (surroundingsGroup) surroundingsGroup.visible = val ?? true
-})
-
 watch(() => props.sunHour, h => { updateSunPosition(h) })
 
 // ── Screenshot capture ────────────────────────────────────────────
@@ -974,7 +910,20 @@ function captureScreenshot() {
   return renderer.domElement.toDataURL('image/png')
 }
 
-defineExpose({ captureScreenshot, addPlantAtScreen, deleteSelectedPlant, getPlantCount })
+// The form-found membrane and its floor as an .obj in metres, Y up, for Rhino.
+function exportOBJ() {
+  const group = new THREE.Group()
+  for (const [g, name] of [[room.membrane, 'membrane'], [room.floor, 'floor']]) {
+    const m = new THREE.Mesh(g.clone())
+    m.name = name
+    m.scale.setScalar(1 / UNITS_PER_M)
+    group.add(m)
+  }
+  group.updateMatrixWorld(true)
+  return new OBJExporter().parse(group)
+}
+
+defineExpose({ captureScreenshot, addPlantAtScreen, deleteSelectedPlant, getPlantCount, exportOBJ })
 </script>
 
 <style scoped>
