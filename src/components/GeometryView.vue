@@ -400,7 +400,7 @@ function createPlan() {
   const group = new THREE.Group()
   group.visible = false
   const ink = new THREE.MeshBasicMaterial({ color: 0x1b1a18, side: THREE.DoubleSide, depthTest: false })
-  const sunC = new THREE.Color('#b8800f')
+  const sunC = new THREE.Color('#ac8821')
 
   // Poche: the film cut at the section height, a thick ink line with gaps at the openings
   const maxQ = 260
@@ -938,8 +938,8 @@ defineExpose({ captureScreenshot, addPlantAtScreen, deleteSelectedPlant, getPlan
 .ns-labels :deep(.pl) { font: 500 10px var(--ns-mono); letter-spacing: .08em; color: var(--ns-ink-2); white-space: nowrap; }
 .ns-labels :deep(.pl.hour) { color: var(--ns-sun); }
 .ns-labels :deep(.pl.arch) { background: var(--ns-surface); border: 1px solid var(--ns-line); border-radius: var(--ns-r-pill); padding: 2px 7px; color: var(--ns-ink); }
-.ns-labels :deep(.pl.sun) { width: 16px; height: 16px; border-radius: 50%; background: var(--ns-sun); box-shadow: 0 0 0 5px #b8800f33; pointer-events: auto; cursor: grab; touch-action: none; transition: box-shadow var(--ns-fast); }
-.ns-labels :deep(.pl.sun:hover), .ns-labels :deep(.pl.sun.held) { box-shadow: 0 0 0 9px #b8800f40; }
+.ns-labels :deep(.pl.sun) { width: 16px; height: 16px; border-radius: 50%; background: var(--ns-sun); box-shadow: 0 0 0 5px #ac882133; pointer-events: auto; cursor: grab; touch-action: none; transition: box-shadow var(--ns-fast); }
+.ns-labels :deep(.pl.sun:hover), .ns-labels :deep(.pl.sun.held) { box-shadow: 0 0 0 9px #ac882140; }
 .ns-labels :deep(.pl.sun.held) { cursor: grabbing; }
 
 .walk-hint { position: absolute; top: 118px; transform: translateX(-50%); margin: 0; display: flex; gap: 4px; align-items: center; pointer-events: none;

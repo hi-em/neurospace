@@ -10,7 +10,7 @@
   /* Brand + meaning */
   --ns-red: #c50000;         /* brand mark, primary emphasis, a worse estimate */
   --ns-green: #2d6a4f;       /* a better estimate */
-  --ns-sun: #b8800f;         /* time of day: the daylight colour */
+  --ns-sun: #ac8821;         /* time of day: the daylight colour */
 
   /* Warm neutrals: ground → surface → sunk, lines, ink */
   --ns-paper: #f6f3ee;       /* page ground */
@@ -22,21 +22,20 @@
   --ns-ink-2: #3a3632;       /* body text on surfaces */
   --ns-mute: #6f6a63;        /* labels, captions (AA on paper and surface) */
 
-  /* Data: one colour per score dimension, everywhere ("Nature cues", chosen
-     2026-09-29): each colour is the thing it stands for in the room. Sky for
-     the ceiling, leaf for plants, sun for daylight, clay for the walls, and
-     violet for biomorphic form, the one dimension with no material of its own.
-     Validated as a categorical ring on --ns-surface with the dataviz
-     validator, in the ring order ceiling · plants · form · daylight · walls:
-     green sits between blue and violet, away from the reds and ambers it is
-     confused with under colour-blindness. Worst adjacent pair clears
-     colour-blind (ΔE 14.3) and normal-vision (ΔE 15.9) separation, and all
-     five clear 3:1 contrast. */
-  --ns-d-ceiling: #3b78c9;  /* sky */
-  --ns-d-plants: #3a8f3e;   /* leaf */
-  --ns-d-form: #8a55b0;     /* violet */
-  --ns-d-light: #b8800f;    /* sun */
-  --ns-d-walls: #9c4a35;    /* clay */
+  /* Data: one colour per score dimension, everywhere ("Senses", chosen
+     2026-09-29): each colour is what the change does to the person inside.
+     Indigo for the depth of space above, gold for light, coral for the skin
+     of fabric you are wrapped in, teal for flowing organic form, leaf for
+     plants. Validated as a categorical ring on --ns-surface with the dataviz
+     validator, in the ring order ceiling · daylight · walls · form · plants:
+     worst adjacent pair clears colour-blind (ΔE 14.8) and normal-vision
+     (ΔE 17.9) separation. Gold sits at 2.9:1 against the surface, just under
+     3:1, so it is never used without its label or icon. */
+  --ns-d-ceiling: #787dc7;  /* indigo: depth */
+  --ns-d-light: #ac8821;    /* gold: light */
+  --ns-d-walls: #9d4536;    /* coral: skin */
+  --ns-d-form: #02a5aa;     /* teal: flowing form */
+  --ns-d-plants: #278322;   /* leaf */
 
   /* Type: Inter to read, Roboto Mono for labels, numbers and data */
   --ns-sans: Inter, system-ui, -apple-system, sans-serif;

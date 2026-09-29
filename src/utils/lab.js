@@ -19,13 +19,13 @@ export const PARAM_KEYS = Object.keys(PARAMS)
 // dimension's weight). Read by the flow diagram and the weight matrix.
 export const PARAM_SHARE = { 'Height': 22, 'Wall Curvature': 15, 'Wall Count': 10, 'Potted Plants': 13, 'Opening Count': 8.8, 'Opening Size': 13.2, 'Biophilic Organic Form': 18 }
 
-// Presentation order is the palette's validated order (see tokens.css).
+// Presentation order is the palette's validated ring order (see tokens.css).
 export const DIMS = [
   { key: 'Ceiling Height', label: 'Ceiling',  color: 'var(--ns-d-ceiling)', token: '--ns-d-ceiling', icon: 'ceiling', region: 'Prefrontal cortex' },
-  { key: 'Potted Plants',  label: 'Plants',   color: 'var(--ns-d-plants)',  token: '--ns-d-plants',  icon: 'plants',  region: 'Limbic system' },
-  { key: 'Biophilic Form', label: 'Form',     color: 'var(--ns-d-form)',    token: '--ns-d-form',    icon: 'form',    region: 'Temporal lobe' },
   { key: 'Natural Light',  label: 'Daylight', color: 'var(--ns-d-light)',   token: '--ns-d-light',   icon: 'window',  region: 'Visual cortex' },
   { key: 'Wall Quality',   label: 'Walls',    color: 'var(--ns-d-walls)',   token: '--ns-d-walls',   icon: 'walls',   region: 'Parietal lobe' },
+  { key: 'Biophilic Form', label: 'Form',     color: 'var(--ns-d-form)',    token: '--ns-d-form',    icon: 'form',    region: 'Temporal lobe' },
+  { key: 'Potted Plants',  label: 'Plants',   color: 'var(--ns-d-plants)',  token: '--ns-d-plants',  icon: 'plants',  region: 'Limbic system' },
 ]
 export const dimOf = key => DIMS.find(d => d.key === key)
 
