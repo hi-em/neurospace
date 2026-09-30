@@ -42,12 +42,71 @@ few milliseconds: the room morphs rather than rebuilds. The same solver draws th
 icons and the report's renders, and the report measures the solved film (volume, envelope,
 standing headroom). The membrane exports as `.obj` in metres for Rhino.
 
+**The rules, from slider to score:**
+
+```mermaid
+flowchart LR
+  subgraph P["Parameter (a slider)"]
+    H["Ceiling height"]
+    C["Wall curvature"]
+    W["Wall count"]
+    O["Openings"]
+    S["Window-to-wall"]
+    B["Biomorphic form"]
+    PL["Plants"]
+  end
+  subgraph G["What it does to the membrane"]
+    gH["lifts the compression ring<br/>the film hangs from"]
+    gC["taut ridge cables ↔<br/>an inflated bubble"]
+    gW["the ground edge: a control polygon<br/>blended into its B-spline"]
+    gO["one arch per hour on the<br/>equinox sun path, Barcelona"]
+    gS["arch area, solved with<br/>the gamma function"]
+    gB["warps the edge, tilts the ring;<br/>past ~55%, 34 pleats"]
+    gP["potted plants set on the floor<br/>(not the film)"]
+  end
+  subgraph D["Score dimension · weight"]
+    dH["Ceiling height · 0.22"]
+    dW["Wall quality · 0.25"]
+    dL["Natural light · 0.22"]
+    dB["Biophilic form · 0.18"]
+    dP["Potted plants · 0.13"]
+  end
+  H --> gH --> dH
+  C --> gC --> dW
+  W --> gW --> dW
+  O --> gO --> dL
+  S --> gS --> dL
+  B --> gB --> dB
+  PL --> gP --> dP
+```
+
 **The score: a weighted sum in the browser** ([`src/utils/neuroScore.js`](src/utils/neuroScore.js)).
 It answers as fast as you can drag.
 
-```
-sliders ──► force density solve ──► membrane ──► three.js        (every frame while moving)
-        └─► weighted score ────────────────────► NeuroScore      (instant)
+```mermaid
+flowchart LR
+  S(["Sliders"])
+  subgraph V2["v2 · everything in the browser"]
+    FD["Force density solve<br/>warm-started Gauss–Seidel, a few ms"]
+    M["Membrane<br/>one topology for every state"]
+    T["three.js<br/>outside · inside · plan"]
+    NS["NeuroScore<br/>transparent weighted sum"]
+    R["Report<br/>4 pages, renders + measured film"]
+    X[".obj in metres<br/>for Rhino"]
+  end
+  subgraph V1["v1 · retired"]
+    GH["Grasshopper definition"]
+    RC["IAAC's Rhino Compute server<br/>retired with the course year"]
+  end
+  S --> FD --> M --> T
+  S --> NS
+  M --> R
+  NS --> R
+  M --> X
+  S -. "v1 sent the sliders to a server" .-> RC
+  RC -.-> GH
+  classDef gone stroke-dasharray: 4 3,color:#888
+  class GH,RC gone
 ```
 
 Stack: Vue 3, three.js, Vite; html2canvas and jsPDF for the report.
@@ -85,6 +144,9 @@ The citations and the wording of every rule were checked against the sources the
   Argue with it rather than cite it.
 - **Depending on someone else's server was the real mistake in v1.** It cost the demo when the
   course's Rhino Compute server was retired. v2 removes the dependency instead of re-hosting it.
+- **Without WebGL there is no room to draw.** A browser with its graphics switched off gets a
+  picture of the room and the question icons baked in `public/fallback/`, and a line saying so;
+  the questions and the score still work, because they never needed 3D.
 - **The geometry is a reading of the rules, not the original definition.**
   [`src/assets/neuro-space.gh`](src/assets/neuro-space.gh) is kept as the v1 record; it is a
   binary Grasshopper file and nothing in v2 was derived from it by translation.

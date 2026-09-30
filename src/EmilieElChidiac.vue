@@ -2,6 +2,10 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 
 import GeometryView from './components/GeometryView.vue'
+import NoGL from './components/NoGL.vue'
+import { hasWebGL, bakedIcon } from './utils/webgl.js'
+// the mark (scripts/mark.mjs): the Observe rose with one leaf grown past its control
+const MARK = `${import.meta.env.BASE_URL}favicon.svg`
 import LabCard      from './components/LabCard.vue'
 import LabDrawer    from './components/LabDrawer.vue'
 import LabReport    from './components/LabReport.vue'
@@ -170,7 +174,8 @@ function makeThumbs() {
   const next = () => {
     const q = questions.value.find(q => !thumbs[q.id])
     if (!q) { thumbing = false; return }
-    thumbs[q.id] = renderThumb({ ...CONTROL, ...iconState(q) })
+    // without WebGL the built-in questions show their baked icons; yours stay blank
+    thumbs[q.id] = hasWebGL ? renderThumb({ ...CONTROL, ...iconState(q) }) : (q.own ? '' : bakedIcon(q.id))
     ;(window.requestIdleCallback || setTimeout)(next)
   }
   next()
@@ -208,11 +213,11 @@ const research = computed(() => DIMS.map(d => ({
 </script>
 
 <template>
-  <div class="lab" :class="{ narrow, split: compare === 'split' && !narrow, collapsed, compact, tight }" :style="{ '--inset': inset + 'px' }">
+  <div class="lab" :class="{ narrow, split: compare === 'split' && !narrow && hasWebGL, collapsed, compact, tight }" :style="{ '--inset': inset + 'px' }">
 
     <!-- Stage: the room, full-bleed under everything -->
     <main class="stage" aria-label="Room">
-      <template v-if="compare === 'split' && !narrow">
+      <template v-if="compare === 'split' && !narrow && hasWebGL">
         <figure class="view">
           <GeometryView :data="control" :score="controlScore" :mode="mode" :sun-hour="hour" :material-config="materialConfig" :interactive="false" label="Control"
             :inset-left="inset" :cut-height="cut" />
@@ -229,7 +234,8 @@ const research = computed(() => DIMS.map(d => ({
         </div>
       </template>
       <figure v-else class="view">
-        <GeometryView ref="geoMain" :data="shownData" :score="shownScore" :mode="mode" :sun-hour="hour" :material-config="materialConfig"
+        <NoGL v-if="!hasWebGL" :inset="inset" />
+        <GeometryView v-else ref="geoMain" :data="shownData" :score="shownScore" :mode="mode" :sun-hour="hour" :material-config="materialConfig"
           :label="shownData === control ? 'Control' : 'Variant'" :inset-left="inset" :cut-height="cut"
           @plant-count-changed="variant['Potted Plants'] = $event" @solved="solveMs = $event" @sun-hour="hour = $event" :placing="shownData === variant ? placing : null" @placing-done="placing = null" />
         <figcaption v-if="card === 'exp'" class="tag" :class="{ dark: shownData === variant }" :style="{ left: `calc(50% + ${inset / 2}px)` }">
@@ -241,7 +247,7 @@ const research = computed(() => DIMS.map(d => ({
     <!-- Left rail: who and what, then the experiment -->
     <aside class="rail">
       <header class="brand">
-        <h1>Neuro<span>Space</span></h1>
+        <h1><img class="mark" :src="MARK" alt="" width="22" height="22" />Neuro<span>Space</span></h1>
         <p>Change one thing in a room; the lab estimates what it does to the person inside.</p>
       </header>
       <LabCard class="card"
@@ -296,7 +302,7 @@ const research = computed(() => DIMS.map(d => ({
         <div class="seg" role="group" aria-label="Compare" title="Hold F to flip to the control">
           <button :class="{ on: compare === 'variant' }" :aria-pressed="compare === 'variant'" @click="compare = 'variant'" aria-label="Variant"><NsIcon name="single" :size="16" /><span class="w">Variant</span></button>
           <button :class="{ on: compare === 'control' }" :aria-pressed="compare === 'control'" @click="compare = 'control'" aria-label="Control"><span class="cdot"></span><span class="w">Control</span></button>
-          <button v-if="!narrow" :class="{ on: compare === 'split' }" :aria-pressed="compare === 'split'" @click="compare = 'split'" aria-label="Split"><NsIcon name="split" :size="16" /><span class="w">Split</span></button>
+          <button v-if="!narrow && hasWebGL" :class="{ on: compare === 'split' }" :aria-pressed="compare === 'split'" @click="compare = 'split'" aria-label="Split"><NsIcon name="split" :size="16" /><span class="w">Split</span></button>
         </div>
         <kbd class="kbd" :class="{ on: flip }" title="Hold F to flip to the control" aria-hidden="true">F</kbd>
         <span class="sep"></span>
@@ -379,6 +385,7 @@ const research = computed(() => DIMS.map(d => ({
 .rail { position: absolute; left: 16px; top: 14px; bottom: 16px; width: 360px; display: flex; flex-direction: column; gap: 10px; pointer-events: none; z-index: 5; }
 .rail > * { pointer-events: auto; }
 .brand h1 { margin: 0; font: 700 18px var(--ns-sans); letter-spacing: -.02em; line-height: 1.2; }
+.brand h1 .mark { width: 22px; height: 22px; margin-right: 7px; vertical-align: -5px; }
 .brand h1 span { color: var(--ns-red); }
 .brand p { margin: 2px 0 0; font-size: 12px; line-height: 1.35; color: var(--ns-ink-2); max-width: 340px; }
 .card { flex: 0 1 auto; min-height: 0; }

@@ -7,6 +7,7 @@ import * as THREE from 'three'
 import { createRoom, writeRoom, roomParams, roomSpecs, sunVector, UNITS_PER_M } from './membrane.js'
 import { createRigging } from './look.js'
 import { createPottedPlant, plantSpot, plantTop, PLANT_ORDER } from './plant.js'
+import { hasWebGL } from '../utils/webgl.js'
 
 let renderer, scene, ortho, persp, sun, hemi, ground, meshes = []
 function setup() {
@@ -60,6 +61,7 @@ const FRONT = new THREE.Vector3(Math.sin(2.6), 0, -Math.cos(2.6))
  * or 'inside' (standing at the back, facing the sunny arches).
  */
 export function renderThumb(sliders, { w = 120, h = 90, color = '#f4f0e8', view = 'iso', hour = 15, bg = null } = {}) {
+  if (!hasWebGL) return ''              // no picture rather than a thrown renderer
   if (!renderer) setup()
   size(w, h)
   clear()
