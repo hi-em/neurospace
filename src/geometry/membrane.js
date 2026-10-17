@@ -224,10 +224,11 @@ export function writeRoom(room, p, opts = {}) {
   const nExp = 12 - 9.8 * p.curve, G = lameFactor(nExp)
   const target = (p.size / 100) * P * 2.4
   // Each arch's area A = 2·a·h·G(n); solve a and h together at a portal proportion
-  // h ≈ 1.2 × width, capped by the room's height.
+  // h ≈ 1.2 × width, capped by the room's height: 60% of it, but a low room's
+  // arch still reaches a 2.1 m door head, 30 cm under the ring.
   const A1 = target / k
   let aHalf = Math.sqrt(A1 / (4.8 * G))
-  const hA = clamp(2.4 * aHalf, 0.9, Math.min(3.6, 0.6 * H))
+  const hA = clamp(2.4 * aHalf, 0.9, Math.min(3.6, Math.max(0.6 * H, Math.min(2.1, H - 0.3))))
   aHalf = A1 / (2 * hA * G)
   const hours = Array.from({ length: k }, (_, i) => 8 + 9 * (i + 0.5) / k)
   const sOf = th => { const u = ((((th - theta[0]) % TAU) + TAU) % TAU) / TAU * NS, j = Math.floor(u); return sCol[j] + (sCol[j + 1] - sCol[j]) * (u - j) }
